@@ -157,7 +157,6 @@ fn entry_basename(entry_name: &str) -> Option<String> {
         .and_then(OsStr::to_str)
         .map(ToOwned::to_owned)
 }
-}
 
 fn looks_like_runtime_library(file_name: &str) -> bool {
     RUNTIME_LIB_EXTENSIONS
