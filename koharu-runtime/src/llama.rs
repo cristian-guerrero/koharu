@@ -4,16 +4,18 @@ use walkdir::WalkDir;
 
 use anyhow::{Result, bail};
 
-use crate::archive;
+use crate::Runtime;
+use crate::archive::{self, ExtractPolicy};
+use crate::install::InstallState;
 use crate::loader::{add_runtime_search_path, preload_library};
 use tokio::process::Command;
 
 const LLAMA_CPP_TAG: &str = env!("LLAMA_CPP_TAG");
 const RELEASE_BASE_URL: &str = "https://github.com/ggml-org/llama.cpp/releases/download";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
-enum LlamaRuntime {
+enum LlamaDistribution {
     WindowsCuda13X64,
     WindowsVulkanX64,
     LinuxCudaX64,
@@ -21,7 +23,7 @@ enum LlamaRuntime {
     MacosArm64,
 }
 
-impl LlamaRuntime {
+impl LlamaDistribution {
     #[allow(clippy::needless_return)]
     fn detect() -> Result<Self> {
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
@@ -172,151 +174,185 @@ impl LlamaRuntime {
         }
     }
 
-    fn install_dir(self, root: &Path) -> PathBuf {
-        root.join("llama.cpp").join(LLAMA_CPP_TAG).join(self.id())
+    fn install_dir(self, runtime: &Runtime) -> PathBuf {
+        runtime
+            .layout()
+            .runtime_package_dir("llama.cpp")
+            .join(LLAMA_CPP_TAG)
+            .join(self.id())
     }
 
     fn source_id(self) -> String {
         format!("llama-{LLAMA_CPP_TAG}-{}", self.id())
     }
+}
 
-    fn is_zip_asset(asset: &str) -> bool {
-        asset.ends_with(".zip")
-    }
+pub(crate) fn package_enabled(_: &Runtime) -> bool {
+    LlamaDistribution::detect().is_ok()
+}
 
-    async fn install(self, install_dir: &Path, downloads_dir: &Path) -> Result<()> {
-        if matches!(self, Self::LinuxCudaX64) {
-            return self.install_from_source(install_dir, downloads_dir).await;
-        }
+pub(crate) fn package_present(runtime: &Runtime) -> Result<bool> {
+    let distribution = LlamaDistribution::detect()?;
+    let install_dir = distribution.install_dir(runtime);
+    let source_id = distribution.source_id();
+    let install = InstallState::new(&install_dir, &source_id);
+    Ok(install.is_current() && distribution
+        .libraries()
+        .iter()
+        .all(|library| install_dir.join(library).exists()))
+}
 
-        for asset in self.assets() {
-            let url = format!("{RELEASE_BASE_URL}/{LLAMA_CPP_TAG}/{asset}");
-            let archive = archive::download_cached(&url, asset, downloads_dir).await?;
-            if Self::is_zip_asset(asset) {
-                archive::extract_zip(&archive, install_dir)?;
-            } else {
-                archive::extract_tar_gz(&archive, install_dir)?;
+pub(crate) async fn package_prepare(runtime: &Runtime) -> Result<()> {
+    ensure_ready(runtime).await
+}
+
+pub(crate) async fn ensure_ready(runtime: &Runtime) -> Result<()> {
+    let distribution = LlamaDistribution::detect()?;
+    let install_dir = distribution.install_dir(runtime);
+    let source_id = distribution.source_id();
+    let install = InstallState::new(&install_dir, &source_id);
+
+    if !install.is_current() {
+        install.reset()?;
+
+        if matches!(distribution, LlamaDistribution::LinuxCudaX64) {
+            install_from_source(runtime, &install_dir).await?;
+        } else {
+            for asset in distribution.assets() {
+                let url = format!("{RELEASE_BASE_URL}/{LLAMA_CPP_TAG}/{asset}");
+                let archive = archive::fetch(runtime, &url, asset).await?;
+                let kind = archive::detect_kind(asset)?;
+                archive::extract(
+                    &archive,
+                    &install_dir,
+                    kind,
+                    ExtractPolicy::RuntimeLibraries,
+                )?;
             }
         }
 
-        for lib in self.libraries() {
-            if !install_dir.join(lib).exists() {
+        for library in distribution.libraries() {
+            if !install_dir.join(library).exists() {
                 bail!(
-                    "required library `{lib}` missing from `{}`",
+                    "required library `{library}` missing from `{}`",
                     install_dir.display()
                 );
             }
         }
 
-        Ok(())
-    }
-
-    async fn install_from_source(self, install_dir: &Path, downloads_dir: &Path) -> Result<()> {
-        let asset = format!("llama.cpp-{LLAMA_CPP_TAG}.tar.gz");
-        let url = format!("https://github.com/ggml-org/llama.cpp/archive/refs/tags/{LLAMA_CPP_TAG}.tar.gz");
-        let archive = archive::download_cached(&url, &asset, downloads_dir).await?;
-
-        let build_dir = install_dir.join("build-source");
-        if build_dir.exists() {
-            fs::remove_dir_all(&build_dir).ok();
-        }
-        fs::create_dir_all(&build_dir)?;
-
-        archive::extract_tar_gz_all(&archive, &build_dir)?;
-
-        // The extracted directory name is llama.cpp-<tag>
-        let source_root = build_dir.join(format!("llama.cpp-{LLAMA_CPP_TAG}"));
-        let cmake_build_dir = source_root.join("build");
-        fs::create_dir_all(&cmake_build_dir)?;
-
-        let mut cmake = Command::new("cmake");
-        cmake.current_dir(&cmake_build_dir)
-            .arg("..")
-            .arg("-DBUILD_SHARED_LIBS=ON")
-            .arg("-DGGML_CUDA=ON")
-            .arg("-DGGML_NATIVE=OFF");
-
-        if let Ok(cap) = std::env::var("CUDA_COMPUTE_CAP") {
-             cmake.arg(format!("-DCMAKE_CUDA_ARCHITECTURES={cap}"));
-        } else {
-             cmake.arg("-DCMAKE_CUDA_ARCHITECTURES=all");
-        }
-
-        let status = cmake.status().await?;
-        if !status.success() {
-            bail!("cmake failed to configure llama.cpp");
-        }
-
-        let status = Command::new("cmake")
-            .current_dir(&cmake_build_dir)
-            .arg("--build")
-            .arg(".")
-            .arg("--config")
-            .arg("Release")
-            .arg("-j")
-            .arg(num_cpus::get().to_string())
-            .status()
-            .await?;
-
-        if !status.success() {
-            bail!("cmake failed to build llama.cpp");
-        }
-
-        let status = Command::new("cmake")
-            .current_dir(&cmake_build_dir)
-            .arg("--install")
-            .arg(".")
-            .arg("--prefix")
-            .arg(&build_dir.join("install"))
-            .status()
-            .await?;
-
-        if !status.success() {
-            bail!("cmake failed to install llama.cpp");
-        }
-
-        // Copy all libraries, preserving symlinks via cp -P or cp -a
-        let status = Command::new("cp")
-            .arg("-a")
-            .arg(build_dir.join("install").join("lib").to_string_lossy().as_ref())
-            .arg("-T")
-            .arg(install_dir.to_string_lossy().as_ref())
-            .status()
-            .await?;
-        
-        if !status.success() {
-            bail!("failed to copy installed libraries");
-        }
-
-        // Clean up build dir
-        fs::remove_dir_all(&build_dir).ok();
-
-        Ok(())
-    }
-}
-
-pub(crate) async fn ensure_ready(root: &Path, downloads_dir: &Path) -> Result<()> {
-    let runtime = LlamaRuntime::detect()?;
-    let install_dir = runtime.install_dir(root);
-    let source_id = runtime.source_id();
-
-    if !crate::is_up_to_date(&install_dir, &source_id) {
-        crate::reset_dir(&install_dir)?;
-        runtime.install(&install_dir, downloads_dir).await?;
-        crate::mark_installed(&install_dir, &source_id)?;
+        install.commit()?;
     }
 
     add_runtime_search_path(&install_dir)?;
-    for lib in runtime.libraries() {
-        preload_library(&install_dir.join(lib))?;
+    for library in distribution.libraries() {
+        preload_library(&install_dir.join(library))?;
     }
 
     Ok(())
 }
 
-pub(crate) fn runtime_dir(root: &Path) -> Result<PathBuf> {
-    Ok(LlamaRuntime::detect()?.install_dir(root))
+async fn install_from_source(runtime: &Runtime, install_dir: &Path) -> Result<()> {
+    let asset = format!("llama.cpp-{LLAMA_CPP_TAG}.tar.gz");
+    let url = format!("https://github.com/ggml-org/llama.cpp/archive/refs/tags/{LLAMA_CPP_TAG}.tar.gz");
+    let archive = archive::fetch(runtime, &url, &asset).await?;
+
+    let build_dir = install_dir.join("build-source");
+    if build_dir.exists() {
+        fs::remove_dir_all(&build_dir).ok();
+    }
+    fs::create_dir_all(&build_dir)?;
+
+    archive::extract_tar_gz_all(&archive, &build_dir)?;
+
+    // The extracted directory name is llama.cpp-<tag>
+    let source_root = build_dir.join(format!("llama.cpp-{LLAMA_CPP_TAG}"));
+    let cmake_build_dir = source_root.join("build");
+    fs::create_dir_all(&cmake_build_dir)?;
+
+    let mut cmake = Command::new("cmake");
+    cmake
+        .current_dir(&cmake_build_dir)
+        .arg("..")
+        .arg("-DBUILD_SHARED_LIBS=ON")
+        .arg("-DGGML_CUDA=ON")
+        .arg("-DGGML_NATIVE=OFF");
+
+    if let Ok(cap) = std::env::var("CUDA_COMPUTE_CAP") {
+        cmake.arg(format!("-DCMAKE_CUDA_ARCHITECTURES={cap}"));
+    } else {
+        cmake.arg("-DCMAKE_CUDA_ARCHITECTURES=all");
+    }
+
+    let status = cmake.status().await?;
+    if !status.success() {
+        bail!("cmake failed to configure llama.cpp");
+    }
+
+    let status = Command::new("cmake")
+        .current_dir(&cmake_build_dir)
+        .arg("--build")
+        .arg(".")
+        .arg("--config")
+        .arg("Release")
+        .arg("-j")
+        .arg(num_cpus::get().to_string())
+        .status()
+        .await?;
+
+    if !status.success() {
+        bail!("cmake failed to build llama.cpp");
+    }
+
+    let status = Command::new("cmake")
+        .current_dir(&cmake_build_dir)
+        .arg("--install")
+        .arg(".")
+        .arg("--prefix")
+        .arg(&build_dir.join("install"))
+        .status()
+        .await?;
+
+    if !status.success() {
+        bail!("cmake failed to install llama.cpp");
+    }
+
+    // Copy all libraries, preserving symlinks via cp -P or cp -a
+    let status = Command::new("cp")
+        .arg("-a")
+        .arg(
+            build_dir
+                .join("install")
+                .join("lib")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .arg("-T")
+        .arg(install_dir.to_string_lossy().as_ref())
+        .status()
+        .await?;
+
+    if !status.success() {
+        bail!("failed to copy installed libraries");
+    }
+
+    // Clean up build dir
+    fs::remove_dir_all(&build_dir).ok();
+
+    Ok(())
 }
+
+pub(crate) fn runtime_dir(runtime: &Runtime) -> Result<PathBuf> {
+    Ok(LlamaDistribution::detect()?.install_dir(runtime))
+}
+
+crate::declare_native_package!(
+    id: "runtime:llama",
+    bootstrap: true,
+    order: 20,
+    enabled: crate::llama::package_enabled,
+    present: crate::llama::package_present,
+    prepare: crate::llama::package_prepare,
+);
 
 #[cfg(test)]
 mod tests {
@@ -331,7 +367,7 @@ mod tests {
 
     #[test]
     fn detect_returns_a_variant_for_current_platform() {
-        let runtime = LlamaRuntime::detect().unwrap();
+        let runtime = LlamaDistribution::detect().unwrap();
         assert!(!runtime.id().is_empty());
         assert!(!runtime.assets().is_empty());
         assert!(!runtime.libraries().is_empty());
@@ -339,11 +375,15 @@ mod tests {
 
     #[test]
     fn install_dir_includes_tag_and_id() {
-        let root = Path::new("/tmp/rt");
-        let dir = LlamaRuntime::WindowsVulkanX64.install_dir(root);
+        let runtime = Runtime::new(
+            crate::Settings::from_paths("/tmp/rt", "/tmp/models"),
+            crate::ComputePolicy::CpuOnly,
+        )
+        .unwrap();
+        let dir = LlamaDistribution::WindowsVulkanX64.install_dir(&runtime);
         assert!(
             dir.ends_with(
-                Path::new("llama.cpp")
+                std::path::Path::new("llama.cpp")
                     .join(LLAMA_CPP_TAG)
                     .join("windows-vulkan-x64")
             )
@@ -354,14 +394,18 @@ mod tests {
     fn preload_order_matches_libraries() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        let rt = LlamaRuntime::WindowsCuda13X64;
+        let runtime = LlamaDistribution::WindowsCuda13X64;
 
-        for lib in rt.libraries() {
-            touch(&root.join(lib));
+        for library in runtime.libraries() {
+            touch(&root.join(library));
         }
 
-        let paths: Vec<PathBuf> = rt.libraries().iter().map(|l| root.join(l)).collect();
-        assert!(paths.iter().all(|p| p.exists()));
-        assert_eq!(paths.len(), rt.libraries().len());
+        let paths: Vec<PathBuf> = runtime
+            .libraries()
+            .iter()
+            .map(|library| root.join(library))
+            .collect();
+        assert!(paths.iter().all(|path| path.exists()));
+        assert_eq!(paths.len(), runtime.libraries().len());
     }
 }

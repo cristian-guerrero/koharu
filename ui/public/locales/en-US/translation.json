@@ -33,7 +33,10 @@
       "zh-TW": "繁體中文",
       "ja-JP": "日本語",
       "ru-RU": "Русский",
-      "es-ES": "Español"
+      "es-ES": "Español",
+      "tr-TR": "Turkish",
+      "ko-KR": "한국어",
+      "pt-BR": "Português (Brasil)"
     }
   },
   "operations": {
@@ -149,7 +152,8 @@
       "kk-KZ": "Kazakh (Kazakhstan)",
       "mn-MN": "Mongolian (Mongolia)",
       "ug-CN": "Uyghur (China)",
-      "yue-HK": "Cantonese (Hong Kong SAR China)"
+      "yue-HK": "Cantonese (Hong Kong SAR China)",
+      "pt-BR": "Brazilian Portuguese"
     }
   },
   "render": {
@@ -223,7 +227,27 @@
     "deepseek": "DeepSeek",
     "unknown": "Provider"
   },
+  "bootstrap": {
+    "loading": "LOADING",
+    "language": "LANGUAGE",
+    "runtimePath": "RUNTIME PATH",
+    "modelsPath": "MODELS PATH",
+    "proxyUrl": "PROXY URL",
+    "runtimePathPlaceholder": "RUNTIME PATH",
+    "modelsPathPlaceholder": "MODELS PATH",
+    "proxyUrlPlaceholder": "HTTP://127.0.0.1:7890",
+    "pathsRequired": "RUNTIME PATH AND MODELS PATH ARE REQUIRED.",
+    "failedLoadConfig": "FAILED TO LOAD CONFIG.",
+    "failed": "FAILED",
+    "waitingForDownload": "WAITING FOR DOWNLOAD",
+    "back": "BACK",
+    "next": "NEXT",
+    "init": "INIT",
+    "retryNow": "RETRY NOW"
+  },
   "settings": {
+    "httpProxy": "HTTP Proxy",
+    "httpProxyDescription": "Used for runtime and model downloads. Changes save automatically.",
     "title": "Settings",
     "appearance": "Appearance",
     "appearanceDescription": "Customize how Koharu looks on your device.",
@@ -249,10 +273,13 @@
     "apiKeysDescription": "Manage your API keys for different providers. Your keys are stored securely on your device keychain and are never shared with anyone.",
     "freeTier": "Free Tier",
     "localLlm": "Local LLM",
+    "localLlmTitle": "Local LLM",
     "localLlmDescription": "Connect to a local LLM server (Ollama, LM Studio, or any OpenAI-compatible endpoint) for translation.",
     "localLlmPreset": "Provider",
     "localLlmPresetOllama": "Ollama",
     "localLlmPresetLmStudio": "LM Studio",
+    "localLlmPresetPreset1": "Preset 1",
+    "localLlmPresetPreset2": "Preset 2",
     "localLlmPresetCustom": "Custom",
     "localLlmBaseUrl": "Base URL",
     "localLlmApiKey": "API Key (optional)",

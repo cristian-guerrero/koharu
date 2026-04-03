@@ -33,7 +33,10 @@
       "zh-TW": "繁體中文",
       "ja-JP": "日本語",
       "ru-RU": "Русский",
-      "es-ES": "Español"
+      "es-ES": "Español",
+      "tr-TR": "土耳其语",
+      "ko-KR": "한국어",
+      "pt-BR": "Português (Brasil)"
     }
   },
   "operations": {
@@ -149,7 +152,8 @@
       "kk-KZ": "哈萨克语（哈萨克斯坦）",
       "mn-MN": "蒙古语（蒙古）",
       "ug-CN": "维吾尔语（中国）",
-      "yue-HK": "粤语（中国香港特别行政区）"
+      "yue-HK": "粤语（中国香港特别行政区）",
+      "pt-BR": "巴西葡萄牙语"
     }
   },
   "render": {
@@ -223,7 +227,27 @@
     "deepseek": "DeepSeek",
     "unknown": "提供商"
   },
+  "bootstrap": {
+    "loading": "加载中",
+    "language": "语言",
+    "runtimePath": "运行时路径",
+    "modelsPath": "模型路径",
+    "proxyUrl": "代理 URL",
+    "runtimePathPlaceholder": "运行时路径",
+    "modelsPathPlaceholder": "模型路径",
+    "proxyUrlPlaceholder": "HTTP://127.0.0.1:7890",
+    "pathsRequired": "运行时路径和模型路径为必填项。",
+    "failedLoadConfig": "配置加载失败。",
+    "failed": "失败",
+    "waitingForDownload": "等待下载",
+    "back": "返回",
+    "next": "下一步",
+    "init": "初始化",
+    "retryNow": "立即重试"
+  },
   "settings": {
+    "httpProxy": "HTTP 代理",
+    "httpProxyDescription": "用于运行时和模型下载。更改会自动保存。",
     "title": "设置",
     "appearance": "外观",
     "appearanceDescription": "自定义 Koharu 在您设备上的外观。",
@@ -249,10 +273,13 @@
     "apiKeysDescription": "管理您在不同提供商的 API 密钥。您的密钥会安全地存储在设备的密钥链中，绝不会与他人共享。",
     "freeTier": "免费等级",
     "localLlm": "本地 LLM",
+    "localLlmTitle": "本地 LLM",
     "localLlmDescription": "连接本地 LLM 服务器（Ollama、LM Studio 或任何 OpenAI 兼容接口）进行翻译。",
     "localLlmPreset": "提供商",
     "localLlmPresetOllama": "Ollama",
     "localLlmPresetLmStudio": "LM Studio",
+    "localLlmPresetPreset1": "预设 1",
+    "localLlmPresetPreset2": "预设 2",
     "localLlmPresetCustom": "自定义",
     "localLlmBaseUrl": "Base URL",
     "localLlmApiKey": "API 密钥（可选）",

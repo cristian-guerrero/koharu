@@ -33,7 +33,10 @@
       "zh-TW": "Китайский (трад.)",
       "ja-JP": "Японский",
       "ru-RU": "Русский",
-      "es-ES": "Испанский"
+      "es-ES": "Испанский",
+      "tr-TR": "Турецкий",
+      "ko-KR": "Корейский",
+      "pt-BR": "Português (Brasil)"
     }
   },
   "operations": {
@@ -149,7 +152,8 @@
       "kk-KZ": "Казахский (Казахстан)",
       "mn-MN": "Монгольский (Монголия)",
       "ug-CN": "Уйгурский (Китай)",
-      "yue-HK": "Кантонский (Гонконг [САР])"
+      "yue-HK": "Кантонский (Гонконг [САР])",
+      "pt-BR": "Бразильский португальский"
     }
   },
   "render": {
@@ -223,7 +227,27 @@
     "deepseek": "DeepSeek",
     "unknown": "Провайдер"
   },
+  "bootstrap": {
+    "loading": "ЗАГРУЗКА",
+    "language": "ЯЗЫК",
+    "runtimePath": "ПУТЬ К СРЕДЕ",
+    "modelsPath": "ПУТЬ К МОДЕЛЯМ",
+    "proxyUrl": "URL ПРОКСИ",
+    "runtimePathPlaceholder": "ПУТЬ К СРЕДЕ",
+    "modelsPathPlaceholder": "ПУТЬ К МОДЕЛЯМ",
+    "proxyUrlPlaceholder": "HTTP://127.0.0.1:7890",
+    "pathsRequired": "ПУТЬ К СРЕДЕ И ПУТЬ К МОДЕЛЯМ ОБЯЗАТЕЛЬНЫ.",
+    "failedLoadConfig": "НЕ УДАЛОСЬ ЗАГРУЗИТЬ КОНФИГУРАЦИЮ.",
+    "failed": "СБОЙ",
+    "waitingForDownload": "ОЖИДАНИЕ ЗАГРУЗКИ",
+    "back": "НАЗАД",
+    "next": "ДАЛЕЕ",
+    "init": "СТАРТ",
+    "retryNow": "ПОВТОРИТЬ СЕЙЧАС"
+  },
   "settings": {
+    "httpProxy": "HTTP-прокси",
+    "httpProxyDescription": "Используется для загрузки среды и моделей. Изменения сохраняются автоматически.",
     "title": "Настройки",
     "appearance": "Внешний вид",
     "appearanceDescription": "Настройте внешний вид Koharu.",
@@ -249,10 +273,13 @@
     "apiKeysDescription": "Управляйте своими API ключами для различных провайдеров. Ваши ключи надежно хранятся в связке ключей вашего устройства и никогда не передаются другим лицам.",
     "freeTier": "Бесплатный уровень",
     "localLlm": "Локальная LLM",
+    "localLlmTitle": "Локальная LLM",
     "localLlmDescription": "Подключитесь к локальному серверу LLM (Ollama, LM Studio или любой OpenAI-совместимый эндпоинт) для перевода.",
     "localLlmPreset": "Провайдер",
     "localLlmPresetOllama": "Ollama",
     "localLlmPresetLmStudio": "LM Studio",
+    "localLlmPresetPreset1": "Пресет 1",
+    "localLlmPresetPreset2": "Пресет 2",
     "localLlmPresetCustom": "Другой",
     "localLlmBaseUrl": "Base URL",
     "localLlmApiKey": "API ключ (необязательно)",

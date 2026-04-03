@@ -1,8 +1,11 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use keyring::Entry;
+use reqwest_middleware::ClientWithMiddleware;
 
 use crate::Language;
 
@@ -14,12 +17,33 @@ pub mod openai_compatible;
 
 const API_KEY_SERVICE: &str = "koharu";
 
+static NO_KEYRING: AtomicBool = AtomicBool::new(false);
+
+pub fn disable_keyring() {
+    NO_KEYRING.store(true, Ordering::Relaxed);
+}
+
+fn env_key_var(provider: &str) -> String {
+    format!(
+        "KOHARU_{}_API_KEY",
+        provider.to_ascii_uppercase().replace('-', "_")
+    )
+}
+
 fn provider_key_entry(provider: &str) -> anyhow::Result<Entry> {
     let username = format!("llm_provider_api_key_{provider}");
     Ok(Entry::new(API_KEY_SERVICE, &username)?)
 }
 
 pub fn get_saved_api_key(provider: &str) -> anyhow::Result<Option<String>> {
+    if NO_KEYRING.load(Ordering::Relaxed) {
+        let var = env_key_var(provider);
+        return Ok(std::env::var(&var)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty()));
+    }
+
     let entry = provider_key_entry(provider)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -29,6 +53,16 @@ pub fn get_saved_api_key(provider: &str) -> anyhow::Result<Option<String>> {
 }
 
 pub fn set_saved_api_key(provider: &str, api_key: &str) -> anyhow::Result<()> {
+    if NO_KEYRING.load(Ordering::Relaxed) {
+        tracing::warn!(
+            provider,
+            "keyring is disabled; API key changes are not saved"
+        );
+        return Err(anyhow::anyhow!(
+            "keyring is disabled; API key cannot be saved"
+        ));
+    }
+
     let entry = provider_key_entry(provider)?;
     if api_key.trim().is_empty() {
         match entry.delete_credential() {
@@ -79,6 +113,7 @@ pub trait AnyProvider: Send + Sync {
 }
 
 pub struct ProviderConfig {
+    pub http_client: Arc<ClientWithMiddleware>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub temperature: Option<f64>,
@@ -100,18 +135,23 @@ pub fn build_provider(
 
     let provider: Box<dyn AnyProvider> = match provider_id {
         "openai" => Box::new(openai::OpenAiProvider {
+            http_client: Arc::clone(&config.http_client),
             api_key: required_api_key("openai")?,
         }),
         "gemini" => Box::new(gemini::GeminiProvider {
+            http_client: Arc::clone(&config.http_client),
             api_key: required_api_key("gemini")?,
         }),
         "claude" => Box::new(claude::ClaudeProvider {
+            http_client: Arc::clone(&config.http_client),
             api_key: required_api_key("claude")?,
         }),
         "deepseek" => Box::new(deepseek::DeepSeekProvider {
+            http_client: Arc::clone(&config.http_client),
             api_key: required_api_key("deepseek")?,
         }),
         "openai-compatible" => Box::new(openai_compatible::OpenAiCompatibleProvider {
+            http_client: Arc::clone(&config.http_client),
             base_url: config
                 .base_url
                 .filter(|value| !value.trim().is_empty())

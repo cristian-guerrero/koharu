@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow, bail};
+use koharu_runtime::RuntimeManager;
 
 #[allow(warnings)]
 mod generated {
@@ -62,14 +63,14 @@ const LIB_NAMES: [&str; 4] = [
 
 static LIBRARIES: OnceLock<LoadedLibraries> = OnceLock::new();
 
-pub fn initialize() -> Result<()> {
-    let runtime_dir = koharu_runtime::llama_runtime_dir().context(
-        "failed to resolve the llama runtime directory; call `koharu_runtime::initialize()` first",
+pub fn initialize(runtime: &RuntimeManager) -> Result<()> {
+    let runtime_dir = runtime.llama_directory().context(
+        "failed to resolve the llama runtime directory; call `koharu_runtime::prepare()` first",
     )?;
 
     if !runtime_dir.exists() {
         bail!(
-            "runtime directory `{}` does not exist; call `koharu_runtime::initialize()` first",
+            "runtime directory `{}` does not exist; call `koharu_runtime::prepare()` first",
             runtime_dir.display()
         );
     }
@@ -102,16 +103,16 @@ pub fn initialize() -> Result<()> {
 fn load_libraries(dir: &Path) -> Result<LoadedLibraries> {
     let [ggml_base_name, ggml_name, llama_name, mtmd_name] = LIB_NAMES;
 
-    let ggml_base = load_and_bind(dir.join(ggml_base_name), |lib| unsafe {
+    let ggml_base = load_and_bind(&dir.join(ggml_base_name), ggml_base_name, |lib| unsafe {
         generated::ggml_base::ggml_base::from_library(lib)
     })?;
-    let ggml = load_and_bind(dir.join(ggml_name), |lib| unsafe {
+    let ggml = load_and_bind(&dir.join(ggml_name), ggml_name, |lib| unsafe {
         generated::ggml::ggml::from_library(lib)
     })?;
-    let llama = load_and_bind(dir.join(llama_name), |lib| unsafe {
+    let llama = load_and_bind(&dir.join(llama_name), llama_name, |lib| unsafe {
         generated::llama::llama::from_library(lib)
     })?;
-    let mtmd = load_and_bind(dir.join(mtmd_name), |lib| unsafe {
+    let mtmd = load_and_bind(&dir.join(mtmd_name), mtmd_name, |lib| unsafe {
         generated::mtmd::mtmd::from_library(lib)
     })?;
 
@@ -125,14 +126,19 @@ fn load_libraries(dir: &Path) -> Result<LoadedLibraries> {
 }
 
 fn load_and_bind<T>(
-    path: PathBuf,
+    path: &Path,
+    name: &str,
     bind: impl FnOnce(libloading::Library) -> std::result::Result<T, libloading::Error>,
 ) -> Result<T> {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .context("invalid library path")?;
-    let library = koharu_runtime::load_library(path.as_os_str())
+    // On Windows, DLL search paths are configured via add_runtime_search_path,
+    // On Linux and macOS, we load libraries by path to ensure we get the correct ones.
+    #[cfg(target_os = "windows")]
+    let _ = path;
+    #[cfg(target_os = "windows")]
+    let library = koharu_runtime::load_library_by_name(name)
+        .with_context(|| format!("failed to load `{name}`"))?;
+    #[cfg(not(target_os = "windows"))]
+    let library = koharu_runtime::load_library_by_path(path)
         .with_context(|| format!("failed to load `{name}`"))?;
     bind(library).with_context(|| format!("failed to bind `{name}`"))
 }
@@ -152,7 +158,7 @@ fn register_backends(ggml: &generated::ggml::ggml, dir: &Path) -> Result<()> {
 
 fn libraries() -> &'static LoadedLibraries {
     LIBRARIES.get().expect(
-        "koharu-llm runtime libraries are not initialized; call `koharu_runtime::initialize()` first",
+        "koharu-llm runtime libraries are not initialized; call `koharu_runtime::prepare()` first",
     )
 }
 

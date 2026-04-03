@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { ThemeProvider } from 'next-themes'
 import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
+import { usePathname } from 'next/navigation'
+import ClientOnly from '@/components/ClientOnly'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   ProgressBarStatus,
@@ -35,12 +37,17 @@ import type {
 
 function ProvidersBootstrap({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
+  const pathname = usePathname()
+  const isStartupRoute =
+    pathname === '/bootstrap' || pathname === '/splashscreen'
   const hasConnectedRef = useRef(false)
   const setTotalPages = useEditorUiStore((state) => state.setTotalPages)
   const setApiKey = usePreferencesStore((state) => state.setApiKey)
   const rpcConnected = useRpcConnection()
-  const shouldQueryApiKeys = rpcConnected && isTauri()
-  const { data: documentsCount } = useDocumentsCountQuery(rpcConnected)
+  const shouldQueryApiKeys = rpcConnected && !isStartupRoute && isTauri()
+  const { data: documentsCount } = useDocumentsCountQuery(
+    rpcConnected && !isStartupRoute,
+  )
   const openAiApiKeyQuery = useApiKeyQuery('openai', shouldQueryApiKeys)
   const openAiCompatibleApiKeyQuery = useApiKeyQuery(
     'openai-compatible',
@@ -196,6 +203,8 @@ function ProvidersBootstrap({ children }: { children: ReactNode }) {
   }, [deepSeekApiKeyQuery.data, deepSeekApiKeyQuery.status, setApiKey])
 
   useEffect(() => {
+    if (isStartupRoute) return
+
     let unlisten: (() => void) | undefined
     ;(async () => {
       try {
@@ -257,13 +266,12 @@ function ProvidersBootstrap({ children }: { children: ReactNode }) {
       unsubscribeJobs()
       unsubscribeLlm()
     }
-  }, [queryClient, setTotalPages])
+  }, [isStartupRoute, queryClient, setTotalPages])
 
   return children
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [mounted, setMounted] = useState(false)
   const queryClient = getQueryClient()
   const ensureDownloadSubscribed = useDownloadStore(
     (state) => state.ensureSubscribed,
@@ -274,8 +282,6 @@ export function Providers({ children }: { children: ReactNode }) {
   }, [ensureDownloadSubscribed])
 
   useEffect(() => {
-    setMounted(true)
-
     const handleLanguageChange = (lng: string) => {
       document.documentElement.lang = lng
     }
@@ -287,17 +293,17 @@ export function Providers({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  if (!mounted) return null
-
   return (
     <QueryClientProvider client={queryClient}>
-      <ProvidersBootstrap>
-        <I18nextProvider i18n={i18n}>
-          <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
-            <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
-          </ThemeProvider>
-        </I18nextProvider>
-      </ProvidersBootstrap>
+      <ThemeProvider attribute='class' defaultTheme='system' enableSystem>
+        <ClientOnly>
+          <ProvidersBootstrap>
+            <I18nextProvider i18n={i18n}>
+              <TooltipProvider delayDuration={0}>{children}</TooltipProvider>
+            </I18nextProvider>
+          </ProvidersBootstrap>
+        </ClientOnly>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }
