@@ -1,6 +1,8 @@
 {
   "common": {
-    "initializing": "Инициализация..."
+    "initializing": "Инициализация...",
+    "cancel": "Отмена",
+    "save": "Сохранить"
   },
   "menu": {
     "file": "Файл",
@@ -57,7 +59,11 @@
     "pages_one": "{{count}} стр.",
     "pages_other": "{{count}} стр.",
     "empty": "Нет документов",
-    "prompt": "Выберите или импортируйте страницу для начала"
+    "prompt": "Выберите или импортируйте страницу для начала",
+    "pageManager": {
+      "title": "Управление страницами",
+      "description": "Перетащите страницы для изменения порядка."
+    }
   },
   "panels": {
     "processing": "Обработка",
@@ -297,6 +303,63 @@
     "localLlmTesting": "Проверка...",
     "localLlmTestSuccess": "Подключено. Найдено моделей: {{count}}. Задержка: {{latency}}мс",
     "localLlmTestFailed": "Ошибка подключения: {{error}}",
-    "localLlmAdvanced": "Расширенные настройки"
+    "localLlmAdvanced": "Расширенные настройки",
+    "appConfig": "Конфигурация приложения",
+    "runtime": "Среда выполнения",
+    "renderingFont": "Шрифт рендеринга",
+    "renderingFontDescription": "Шрифт, используемый при рендеринге переведённого текста на изображениях.",
+    "providersDescription": "Настройте API-ключи и конечные точки для провайдеров LLM.",
+    "loadingProviders": "Загрузка провайдеров...",
+    "apiKey": "API-ключ",
+    "apiKeyPlaceholderStored": "Ключ сохранён. Введите новый для замены.",
+    "apiKeyPlaceholderEmpty": "Введите API-ключ",
+    "apiKeyStoredInKeychain": "Сохранён в связке ключей",
+    "apiKeyClear": "Удалить",
+    "apiKeySave": "Сохранить",
+    "apiKeySaved": "Сохранено!",
+    "dataPath": "Путь к данным",
+    "dataPathDescription": "Koharu хранит модели, пакеты среды, манифесты страниц и изображения в этой директории. Изменение пути требует перезапуска приложения.",
+    "dataPathApply": "Применить и перезапустить",
+    "dataPathApplying": "Применяется...",
+    "dataPathDesktopOnly": "Настройки среды выполнения доступны только в настольном приложении.",
+    "runtimeDescription": "Путь данных и HTTP-настройки для загрузок и запросов к провайдерам. Изменения требуют перезапуска приложения.",
+    "httpConnectTimeout": "Тайм-аут подключения HTTP (с)",
+    "httpConnectTimeoutDescription": "Максимальное время ожидания установки HTTP-соединения.",
+    "httpReadTimeout": "Тайм-аут чтения HTTP (с)",
+    "httpReadTimeoutDescription": "Максимальное время ожидания чтения HTTP-ответа.",
+    "httpMaxRetries": "Макс. число HTTP-повторов",
+    "httpMaxRetriesDescription": "Количество автоматических повторных попыток при временных HTTP-сбоях.",
+    "restartApply": "Применить и перезапустить",
+    "restartApplying": "Применение...",
+    "restartRequiredDescription": "Эти настройки загружаются при запуске. Применение сохранит конфигурацию и перезапустит приложение.",
+    "engines": "Движки",
+    "enginesDescription": "Выберите ML-движок для каждого этапа конвейера.",
+    "detector": "Детектор",
+    "bubbleDetector": "Bubble Detector",
+    "fontDetector": "Font Detector",
+    "segmenter": "Сегментатор",
+    "ocr": "OCR",
+    "translator": "Переводчик",
+    "inpainter": "Инпейнтер",
+    "renderer": "Рендерер"
+  },
+  "updater": {
+    "available": {
+      "title": "Доступно обновление",
+      "description": "Koharu <strong>{{version}}</strong> готов к установке"
+    },
+    "noNotes": "Примечания к выпуску отсутствуют.",
+    "later": "Позже",
+    "update": "Обновить",
+    "downloading": {
+      "title": "Загрузка обновления…",
+      "subtitle": "Koharu {{version}}"
+    },
+    "error": {
+      "title": "Ошибка обновления",
+      "description": "Что-то пошло не так во время обновления"
+    },
+    "close": "Закрыть",
+    "retry": "Повторить"
   }
 }

@@ -14,7 +14,7 @@ default-members = ["koharu"]
 resolver = "3"
 
 [workspace.package]
-version = "0.41.4"
+version = "0.43.2"
 edition = "2024"
 description = "Manga translation tools"
 license = "GPL-3.0-only"
@@ -49,15 +49,17 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1.0"
-tokio = { version = "1.44", features = ["full"] }
+tokio = { version = "1.51", features = ["full"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+console = "0.16"
 open = "5.3"
 rfd = "0.17"
 postcard = { version = "1.0", features = ["use-std"] }
 thiserror = "2.0"
 tauri = { version = "2.9", features = ["devtools"] }
 tauri-build = "2.5"
+tauri-plugin-opener = "2.5"
 tauri-plugin-updater = "2.10"
 blake3 = "1.8"
 rayon = "1.11"
@@ -67,14 +69,16 @@ strum = { version = "0.28", features = ["derive"] }
 zip = { version = "8.5", default-features = false, features = ["deflate"] }
 dirs = "6.0"
 futures = "0.3"
-reqwest = { version = "0.13", features = ["stream", "json", "blocking"] }
+reqwest = { version = "0.13", features = ["stream", "json", "form", "blocking"] }
+secrecy = { version = "0.10", features = ["serde"] }
 reqwest-middleware = "0.5"
 reqwest-retry = "0.9"
 toml = "1.1"
 inventory = "0.3"
 url = { version = "2.5", features = ["serde"] }
 arc-swap = "1.7"
-indexmap = "2.11"
+camino = { version = "1.1", features = ["serde1"] }
+indexmap = "2.13"
 flate2 = { version = "1.0", default-features = false, features = [
     "zlib-ng-compat",
 ] }
@@ -103,6 +107,7 @@ objc2-metal-performance-shaders-graph = "0.3"
 objc2-foundation = "0.3"
 indicatif = "0.18"
 minijinja = "2.19"
+minijinja-contrib = { version = "2.19", features = ["pycompat"] }
 windows = { version = "0.62", features = [
     "Win32",
     "Win32_System",
@@ -111,8 +116,8 @@ windows = { version = "0.62", features = [
 ] }
 windows-sys = "0.61"
 winreg = "0.56"
-skrifa = "0.41"
-harfrust = "0.5"
+skrifa = "0.42"
+harfrust = "0.6"
 icu = "2.2"
 fontdb = "0.23"
 fontdue = "0.9"
@@ -126,13 +131,19 @@ rmcp = { version = "0.16", features = [
     "transport-streamable-http-server",
 ] }
 schemars = "1.2"
-ts-rs = { version = "12.0", features = ["serde-json-impl"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
 uuid = { version = "1.18", features = ["v4", "serde"] }
 base64 = "0.22"
 tower-http = { version = "0.6", features = ["cors"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 git-version = "0.3"
 keyring = "3.6"
+lru = "0.16"
+petgraph = "0.8"
+petname = "2"
+tauri-plugin-process = "2.3"
+sentry = { version = "0.47", features = ["tracing"] }
 
 [patch.crates-io]
 candle-transformers = { git = "https://github.com/mayocream/candle", branch = "cuda-dynamic-loading" }
@@ -146,3 +157,7 @@ opt-level = 3
 
 [profile.dev.package.imageproc]
 opt-level = 3
+
+[profile.release-with-debug]
+inherits = "release"
+debug-assertions = true

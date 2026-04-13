@@ -1,7 +1,7 @@
 use clap::Parser;
 use koharu_core::TextBlock;
 use koharu_ml::mit48px_ocr::{Mit48pxBlockPrediction, Mit48pxOcr, Mit48pxPrediction};
-use koharu_runtime::{ComputePolicy, RuntimeManager, Settings};
+use koharu_runtime::{ComputePolicy, RuntimeManager, default_app_data_root};
 
 #[path = "common.rs"]
 mod common;
@@ -38,13 +38,15 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let image = image::open(&cli.input)?;
     let runtime = RuntimeManager::new(
-        Settings::default(),
+        default_app_data_root(),
         if cli.cpu {
             ComputePolicy::CpuOnly
         } else {
             ComputePolicy::PreferGpu
         },
     )?;
+    runtime.prepare().await?;
+
     let model = if let Some(model_dir) = &cli.model_dir {
         Mit48pxOcr::load_from_dir(model_dir, cli.cpu)?
     } else {

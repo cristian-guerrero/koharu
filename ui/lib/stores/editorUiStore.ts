@@ -2,11 +2,31 @@
 
 import { create } from 'zustand'
 import { RenderEffect, RenderStroke, ToolMode } from '@/types'
+import type { LlmTarget } from '@/lib/api/schemas'
+
+// ---------------------------------------------------------------------------
+// Error auto-dismiss timer
+// ---------------------------------------------------------------------------
+
+const ERROR_AUTO_DISMISS_MS = 8000
+
+let dismissTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearDismissTimer = () => {
+  if (!dismissTimer) return
+  clearTimeout(dismissTimer)
+  dismissTimer = null
+}
+
+// ---------------------------------------------------------------------------
+// Store type
+// ---------------------------------------------------------------------------
 
 type EditorUiState = {
+  // --- editor ---
   totalPages: number
   documentsVersion: number
-  currentDocumentIndex: number
+  currentDocumentId: string | null
   scale: number
   showSegmentationMask: boolean
   showInpaintedImage: boolean
@@ -17,9 +37,9 @@ type EditorUiState = {
   selectedBlockIndex?: number
   autoFitEnabled: boolean
   renderEffect: RenderEffect
-  renderStroke: RenderStroke
+  renderStroke?: RenderStroke
   setTotalPages: (count: number) => void
-  setCurrentDocumentIndex: (index: number) => void
+  setCurrentDocumentId: (id: string | null) => void
   setScale: (scale: number) => void
   setShowSegmentationMask: (show: boolean) => void
   setShowInpaintedImage: (show: boolean) => void
@@ -30,14 +50,28 @@ type EditorUiState = {
   setSelectedBlockIndex: (index?: number) => void
   setAutoFitEnabled: (enabled: boolean) => void
   setRenderEffect: (effect: RenderEffect) => void
-  setRenderStroke: (stroke: RenderStroke) => void
+  setRenderStroke: (stroke?: RenderStroke) => void
+
+  // --- llm ui ---
+  selectedTarget?: LlmTarget
+  selectedLanguage?: string
+  setSelectedTarget: (selectedTarget?: LlmTarget) => void
+  setSelectedLanguage: (selectedLanguage?: string) => void
+
+  // --- ui error ---
+  error?: { id: number; message: string }
+  showError: (message: string) => void
+  clearError: () => void
+
+  // --- reset ---
   resetUiState: () => void
 }
 
 const initialState = {
+  // editor
   totalPages: 0,
   documentsVersion: 0,
-  currentDocumentIndex: 0,
+  currentDocumentId: null as string | null,
   scale: 100,
   showSegmentationMask: false,
   showInpaintedImage: false,
@@ -45,35 +79,40 @@ const initialState = {
   showRenderedImage: false,
   showTextBlocksOverlay: false,
   mode: 'select' as ToolMode,
-  selectedBlockIndex: undefined,
+  selectedBlockIndex: undefined as number | undefined,
   autoFitEnabled: true,
   renderEffect: {
     italic: false,
     bold: false,
   } as RenderEffect,
-  renderStroke: {
-    enabled: true,
-    color: [255, 255, 255, 255],
-    widthPx: undefined,
-  } as RenderStroke,
+  renderStroke: undefined as RenderStroke | undefined,
+
+  // llm ui
+  selectedTarget: undefined as LlmTarget | undefined,
+  selectedLanguage: undefined as string | undefined,
+
+  // ui error
+  error: undefined as { id: number; message: string } | undefined,
 }
 
 export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   ...initialState,
+
+  // --- editor actions ---
   setTotalPages: (count) => {
     set((state) => {
       if (state.totalPages === count) return state
       return {
         totalPages: count,
         documentsVersion: state.documentsVersion + 1,
-        currentDocumentIndex: 0,
+        currentDocumentId: null,
         selectedBlockIndex: undefined,
       }
     })
   },
-  setCurrentDocumentIndex: (index) =>
+  setCurrentDocumentId: (id) =>
     set(() => ({
-      currentDocumentIndex: index,
+      currentDocumentId: id,
       selectedBlockIndex: undefined,
     })),
   setScale: (scale) => {
@@ -119,11 +158,36 @@ export const useEditorUiStore = create<EditorUiState>((set, get) => ({
   setAutoFitEnabled: (enabled) => set({ autoFitEnabled: enabled }),
   setRenderEffect: (effect) => set({ renderEffect: effect }),
   setRenderStroke: (stroke) => set({ renderStroke: stroke }),
+
+  // --- llm ui actions ---
+  setSelectedTarget: (selectedTarget) => set({ selectedTarget }),
+  setSelectedLanguage: (selectedLanguage) => set({ selectedLanguage }),
+
+  // --- ui error actions ---
+  showError: (message) => {
+    clearDismissTimer()
+    set({
+      error: {
+        id: Date.now(),
+        message,
+      },
+    })
+    dismissTimer = setTimeout(() => {
+      dismissTimer = null
+      set({ error: undefined })
+    }, ERROR_AUTO_DISMISS_MS)
+  },
+  clearError: () => {
+    clearDismissTimer()
+    set({ error: undefined })
+  },
+
+  // --- reset ---
   resetUiState: () =>
     set(() => ({
       ...initialState,
       totalPages: get().totalPages,
       documentsVersion: get().documentsVersion,
-      currentDocumentIndex: get().currentDocumentIndex,
+      currentDocumentId: get().currentDocumentId,
     })),
 }))

@@ -1,43 +1,47 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { LayoutGridIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useDocumentsCountQuery, useThumbnailQuery } from '@/lib/query/hooks'
+import {
+  useListDocuments,
+  getGetDocumentThumbnailUrl,
+} from '@/lib/api/documents/documents'
 import { useEditorUiStore } from '@/lib/stores/editorUiStore'
 import { Button } from '@/components/ui/button'
+import { PageManagerDialog } from '@/components/PageManagerDialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { flushTextBlockSync } from '@/lib/services/syncQueues'
-import { cancelObjectUrlRevoke, revokeObjectUrlLater } from '@/lib/util'
+
+const THUMBNAIL_DPR =
+  typeof window !== 'undefined'
+    ? Math.min(Math.ceil(window.devicePixelRatio || 1), 3)
+    : 2
+
+// Fixed row height: thumbnail (aspect 3:4 in ~150px width ≈ 200px) + page number + padding
+const ROW_HEIGHT = 230
+const OVERSCAN = 5
 
 export function Navigator() {
-  const { data: totalPagesData = 0 } = useDocumentsCountQuery()
-  const totalPages = totalPagesData ?? 0
-  const documentsVersion = useEditorUiStore((state) => state.documentsVersion)
-  const currentDocumentIndex = useEditorUiStore(
-    (state) => state.currentDocumentIndex,
+  const { data: documents = [] } = useListDocuments()
+  const totalPages = documents.length
+  const currentDocumentId = useEditorUiStore((state) => state.currentDocumentId)
+  const setCurrentDocumentId = useEditorUiStore(
+    (state) => state.setCurrentDocumentId,
   )
-  const setCurrentDocumentIndex = useEditorUiStore(
-    (state) => state.setCurrentDocumentIndex,
+  const currentDocumentIndex = documents.findIndex(
+    (d) => d.id === currentDocumentId,
   )
-  const listRef = useRef<HTMLDivElement | null>(null)
-  const indices = useMemo(
-    () => Array.from({ length: totalPages }, (_, idx) => idx),
-    [totalPages],
-  )
-  const rowVirtualizer = useVirtualizer({
-    count: indices.length,
-    getScrollElement: () => listRef.current,
-    getItemKey: (index) => indices[index] ?? index,
-    estimateSize: () => 320,
-    overscan: 8,
-    measureElement: (element) => element.getBoundingClientRect().height,
-  })
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   const { t } = useTranslation()
+  const [pageManagerOpen, setPageManagerOpen] = useState(false)
 
-  useEffect(() => {
-    rowVirtualizer.measure()
-  }, [rowVirtualizer, totalPages, documentsVersion])
+  const virtualizer = useVirtualizer({
+    count: totalPages,
+    getScrollElement: () => viewportRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN,
+  })
 
   return (
     <div
@@ -45,15 +49,29 @@ export function Navigator() {
       data-total-pages={totalPages}
       className='bg-muted/50 flex h-full min-h-0 w-full flex-col border-r'
     >
-      <div className='border-border border-b px-2 py-1.5'>
-        <p className='text-muted-foreground text-xs tracking-wide uppercase'>
-          {t('navigator.title')}
-        </p>
-        <p className='text-foreground text-xs font-semibold'>
-          {totalPages
-            ? t('navigator.pages', { count: totalPages })
-            : t('navigator.empty')}
-        </p>
+      <div className='border-border flex items-center justify-between border-b px-2 py-1.5'>
+        <div>
+          <p className='text-muted-foreground text-xs tracking-wide uppercase'>
+            {t('navigator.title')}
+          </p>
+          <p className='text-foreground text-xs font-semibold'>
+            {totalPages
+              ? t('navigator.pages', { count: totalPages })
+              : t('navigator.empty')}
+          </p>
+        </div>
+        {totalPages > 1 && (
+          <Button
+            variant='ghost'
+            size='icon'
+            data-testid='navigator-manage-pages'
+            className='h-6 w-6'
+            onClick={() => setPageManagerOpen(true)}
+            title={t('navigator.pageManager.title')}
+          >
+            <LayoutGridIcon className='h-3.5 w-3.5' />
+          </Button>
+        )}
       </div>
 
       <div className='text-muted-foreground flex items-center gap-1.5 px-2 py-1.5 text-xs'>
@@ -66,85 +84,59 @@ export function Navigator() {
         )}
       </div>
 
-      <ScrollArea className='min-h-0 flex-1' viewportRef={listRef}>
-        <div className='p-2'>
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const idx = indices[virtualRow.index]
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`,
-                    paddingBottom: '6px',
-                  }}
-                >
-                  <PagePreview
-                    index={idx}
-                    documentsVersion={documentsVersion}
-                    selected={idx === currentDocumentIndex}
-                    onSelect={() => {
-                      void flushTextBlockSync()
-                        .catch(() => {})
-                        .finally(() => {
-                          setCurrentDocumentIndex(idx)
-                        })
-                    }}
-                  />
-                </div>
-              )
-            })}
-          </div>
+      <ScrollArea className='min-h-0 flex-1' viewportRef={viewportRef}>
+        <div
+          className='relative w-full'
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const doc = documents[virtualRow.index]
+            return (
+              <div
+                key={doc?.id ?? virtualRow.index}
+                className='absolute left-0 w-full px-1.5 pb-1'
+                style={{
+                  height: ROW_HEIGHT,
+                  top: 0,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <PagePreview
+                  index={virtualRow.index}
+                  documentId={doc?.id}
+                  selected={doc?.id === currentDocumentId}
+                  onSelect={() => doc && setCurrentDocumentId(doc.id)}
+                />
+              </div>
+            )
+          })}
         </div>
       </ScrollArea>
+
+      <PageManagerDialog
+        open={pageManagerOpen}
+        onOpenChange={setPageManagerOpen}
+      />
     </div>
   )
 }
 
 type PagePreviewProps = {
   index: number
-  documentsVersion: number
+  documentId?: string
   selected: boolean
   onSelect: () => void
 }
 
 function PagePreview({
   index,
-  documentsVersion,
+  documentId,
   selected,
   onSelect,
 }: PagePreviewProps) {
-  const [preview, setPreview] = useState<string>()
-  const {
-    data: thumbnailBlob,
-    isPending: loading,
-    isError: error,
-  } = useThumbnailQuery(index, documentsVersion)
-
-  useLayoutEffect(() => {
-    if (!thumbnailBlob) {
-      setPreview(undefined)
-      return
-    }
-    const url = URL.createObjectURL(thumbnailBlob)
-    cancelObjectUrlRevoke(url)
-    setPreview(url)
-    return () => {
-      revokeObjectUrlLater(url)
-    }
-  }, [thumbnailBlob])
+  const src = documentId
+    ? getGetDocumentThumbnailUrl(documentId, { size: 200 * THUMBNAIL_DPR })
+    : undefined
 
   return (
     <Button
@@ -153,28 +145,22 @@ function PagePreview({
       data-testid={`navigator-page-${index}`}
       data-page-index={index}
       data-selected={selected}
-      className='bg-card data-[selected=true]:border-primary flex h-auto flex-col gap-0.5 rounded border border-transparent p-1.5 text-left shadow-sm'
+      className='bg-card data-[selected=true]:border-primary flex h-full w-full flex-col gap-0.5 rounded border border-transparent p-1.5 text-left shadow-sm'
     >
-      {loading ? (
-        <div className='bg-muted aspect-3/4 w-full animate-pulse rounded' />
-      ) : error ? (
-        <div className='bg-muted flex aspect-3/4 w-full items-center justify-center rounded'>
-          <span className='text-muted-foreground text-[10px]'>?</span>
-        </div>
-      ) : preview ? (
-        <img
-          src={preview}
-          alt={`Page ${index + 1}`}
-          style={{ objectFit: 'contain' }}
-          className='aspect-3/4 w-full rounded object-cover'
-        />
-      ) : (
-        <div className='bg-muted aspect-3/4 w-full rounded' />
-      )}
-      <div className='text-muted-foreground flex flex-1 items-center text-xs'>
-        <div className='text-foreground mx-auto flex text-center font-semibold'>
-          {index + 1}
-        </div>
+      <div className='flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded'>
+        {src ? (
+          <img
+            src={src}
+            alt={`Page ${index + 1}`}
+            loading='lazy'
+            className='max-h-full max-w-full rounded object-contain'
+          />
+        ) : (
+          <div className='bg-muted h-full w-full rounded' />
+        )}
+      </div>
+      <div className='text-muted-foreground flex shrink-0 items-center text-xs'>
+        <div className='text-foreground mx-auto font-semibold'>{index + 1}</div>
       </div>
     </Button>
   )

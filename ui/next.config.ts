@@ -1,3 +1,4 @@
+import { withSentryConfig } from '@sentry/nextjs'
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
@@ -7,6 +8,22 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  experimental: {
+    proxyClientMaxBodySize: '1gb',
+    proxyTimeout: 300000,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: 'http://127.0.0.1:9999/api/v1/:path*',
+      },
+    ]
+  },
 }
 
-export default nextConfig
+export default withSentryConfig(nextConfig, {
+  org: 'koharu-d0',
+  project: 'nextjs',
+  silent: !process.env.CI,
+})

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::Runtime;
 use crate::archive::{self, ExtractPolicy};
@@ -25,13 +25,9 @@ enum LlamaDistribution {
 
 impl LlamaDistribution {
     #[allow(clippy::needless_return)]
-    fn detect() -> Result<Self> {
+    fn detect(_runtime: &Runtime) -> Result<Self> {
         #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-        if unsafe { libloading::Library::new("nvcuda.dll") }.is_ok() {
-            return Ok(Self::WindowsCuda13X64);
-        } else {
-            return Ok(Self::WindowsVulkanX64);
-        }
+        return Ok(Self::windows_x64(_runtime));
 
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         if unsafe { libloading::Library::new("libcuda.so.1") }.is_ok()
@@ -57,6 +53,17 @@ impl LlamaDistribution {
         )
     }
 
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    fn windows_x64(runtime: &Runtime) -> Self {
+        if crate::zluda::package_enabled(runtime) {
+            Self::WindowsVulkanX64
+        } else if crate::cuda::llama_cuda_enabled(runtime) {
+            Self::WindowsCuda13X64
+        } else {
+            Self::WindowsVulkanX64
+        }
+    }
+
     fn id(self) -> &'static str {
         match self {
             Self::WindowsCuda13X64 => "windows-cuda13-x64",
@@ -67,16 +74,17 @@ impl LlamaDistribution {
         }
     }
 
-    fn assets(self) -> &'static [&'static str] {
+    fn assets(self) -> Vec<String> {
+        let tag = LLAMA_CPP_TAG;
         match self {
-            Self::WindowsCuda13X64 => &[
-                "llama-b8233-bin-win-cuda-13.0-x64.zip",
-                "cudart-llama-bin-win-cuda-13.0-x64.zip",
+            Self::WindowsCuda13X64 => vec![
+                format!("llama-{tag}-bin-win-cuda-13.0-x64.zip"),
+                "cudart-llama-bin-win-cuda-13.0-x64.zip".to_string(),
             ],
-            Self::WindowsVulkanX64 => &["llama-b8233-bin-win-vulkan-x64.zip"],
-            Self::LinuxCudaX64 => &[], // Built from source
-            Self::LinuxVulkanX64 => &["llama-b8233-bin-ubuntu-vulkan-x64.tar.gz"],
-            Self::MacosArm64 => &["llama-b8233-bin-macos-arm64.tar.gz"],
+            Self::WindowsVulkanX64 => vec![format!("llama-{tag}-bin-win-vulkan-x64.zip")],
+            Self::LinuxCudaX64 => vec![], // Built from source
+            Self::LinuxVulkanX64 => vec![format!("llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz")],
+            Self::MacosArm64 => vec![format!("llama-{tag}-bin-macos-arm64.tar.gz")],
         }
     }
 
@@ -176,8 +184,9 @@ impl LlamaDistribution {
 
     fn install_dir(self, runtime: &Runtime) -> PathBuf {
         runtime
-            .layout()
-            .runtime_package_dir("llama.cpp")
+            .root()
+            .join("runtime")
+            .join("llama.cpp")
             .join(LLAMA_CPP_TAG)
             .join(self.id())
     }
@@ -187,12 +196,12 @@ impl LlamaDistribution {
     }
 }
 
-pub(crate) fn package_enabled(_: &Runtime) -> bool {
-    LlamaDistribution::detect().is_ok()
+pub(crate) fn package_enabled(runtime: &Runtime) -> bool {
+    LlamaDistribution::detect(runtime).is_ok()
 }
 
 pub(crate) fn package_present(runtime: &Runtime) -> Result<bool> {
-    let distribution = LlamaDistribution::detect()?;
+    let distribution = LlamaDistribution::detect(runtime)?;
     let install_dir = distribution.install_dir(runtime);
     let source_id = distribution.source_id();
     let install = InstallState::new(&install_dir, &source_id);
@@ -207,7 +216,7 @@ pub(crate) async fn package_prepare(runtime: &Runtime) -> Result<()> {
 }
 
 pub(crate) async fn ensure_ready(runtime: &Runtime) -> Result<()> {
-    let distribution = LlamaDistribution::detect()?;
+    let distribution = LlamaDistribution::detect(runtime)?;
     let install_dir = distribution.install_dir(runtime);
     let source_id = distribution.source_id();
     let install = InstallState::new(&install_dir, &source_id);
@@ -218,9 +227,13 @@ pub(crate) async fn ensure_ready(runtime: &Runtime) -> Result<()> {
         if matches!(distribution, LlamaDistribution::LinuxCudaX64) {
             install_from_source(runtime, &install_dir).await?;
         } else {
-            for asset in distribution.assets() {
+            for asset in &distribution.assets() {
                 let url = format!("{RELEASE_BASE_URL}/{LLAMA_CPP_TAG}/{asset}");
-                let archive = archive::fetch(runtime, &url, asset).await?;
+                let archive = runtime
+                    .downloads()
+                    .cached_download(&url, asset)
+                    .await
+                    .with_context(|| format!("failed to download `{url}`"))?;
                 let kind = archive::detect_kind(asset)?;
                 archive::extract(
                     &archive,
@@ -342,7 +355,7 @@ async fn install_from_source(runtime: &Runtime, install_dir: &Path) -> Result<()
 }
 
 pub(crate) fn runtime_dir(runtime: &Runtime) -> Result<PathBuf> {
-    Ok(LlamaDistribution::detect()?.install_dir(runtime))
+    Ok(LlamaDistribution::detect(runtime)?.install_dir(runtime))
 }
 
 crate::declare_native_package!(
@@ -367,19 +380,16 @@ mod tests {
 
     #[test]
     fn detect_returns_a_variant_for_current_platform() {
-        let runtime = LlamaDistribution::detect().unwrap();
-        assert!(!runtime.id().is_empty());
-        assert!(!runtime.assets().is_empty());
-        assert!(!runtime.libraries().is_empty());
+        let runtime = Runtime::new("/tmp/koharu-runtime", crate::ComputePolicy::PreferGpu).unwrap();
+        let distribution = LlamaDistribution::detect(&runtime).unwrap();
+        assert!(!distribution.id().is_empty());
+        assert!(!distribution.assets().is_empty());
+        assert!(!distribution.libraries().is_empty());
     }
 
     #[test]
     fn install_dir_includes_tag_and_id() {
-        let runtime = Runtime::new(
-            crate::Settings::from_paths("/tmp/rt", "/tmp/models"),
-            crate::ComputePolicy::CpuOnly,
-        )
-        .unwrap();
+        let runtime = Runtime::new("/tmp/koharu-runtime", crate::ComputePolicy::CpuOnly).unwrap();
         let dir = LlamaDistribution::WindowsVulkanX64.install_dir(&runtime);
         assert!(
             dir.ends_with(
@@ -407,5 +417,17 @@ mod tests {
             .collect();
         assert!(paths.iter().all(|path| path.exists()));
         assert_eq!(paths.len(), runtime.libraries().len());
+    }
+
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    #[test]
+    fn windows_runtime_prefers_vulkan_when_zluda_is_enabled() {
+        let runtime = Runtime::new("/tmp/koharu-runtime", crate::ComputePolicy::PreferGpu).unwrap();
+        if crate::zluda::package_enabled(&runtime) {
+            assert_eq!(
+                LlamaDistribution::detect(&runtime).unwrap(),
+                LlamaDistribution::WindowsVulkanX64
+            );
+        }
     }
 }

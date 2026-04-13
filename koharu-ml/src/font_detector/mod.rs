@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, time::Instant};
 
-use crate::{define_models, device, loading};
+use crate::{device, loading};
 use anyhow::{Context, Result};
 use candle_core::{DType, Device, Tensor};
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
@@ -14,10 +14,7 @@ pub(super) const FONT_COUNT: usize = 6_150;
 const REGRESSION_START: usize = FONT_COUNT + 2;
 pub(super) const REGRESSION_DIM: usize = 10;
 
-define_models! {
-    FontWeights => ("fffonion/yuzumarker-font-detection", "yuzumarker-font-detection.safetensors"),
-    FontNames => ("fffonion/yuzumarker-font-detection", "font-labels-ex.json"),
-}
+const HF_REPO: &str = "fffonion/yuzumarker-font-detection";
 
 koharu_runtime::declare_hf_model_package!(
     id: "model:font-detector:weights",
@@ -34,7 +31,7 @@ koharu_runtime::declare_hf_model_package!(
     order: 141,
 );
 
-pub use koharu_core::{FontPrediction, NamedFontPrediction, TextDirection};
+pub use koharu_core::{FontPrediction, NamedFontPrediction, TextDirection, TopFont};
 
 pub struct FontDetector {
     model: models::Model,
@@ -53,12 +50,13 @@ impl FontDetector {
         kind: ModelKind,
     ) -> Result<Self> {
         let device = device(cpu)?;
-        let model = loading::load_mmaped_safetensors(
-            Manifest::FontWeights.get(runtime),
-            &device,
-            move |vb| models::Model::load(vb.pp("model._orig_mod.model"), kind),
-        )
-        .await?;
+        let downloads = runtime.downloads();
+        let weights_path = downloads
+            .huggingface_model(HF_REPO, "yuzumarker-font-detection.safetensors")
+            .await?;
+        let model = loading::load_mmaped_safetensors_path(&weights_path, &device, move |vb| {
+            models::Model::load(vb.pp("model._orig_mod.model"), kind)
+        })?;
         let labels = FontLabels::load(runtime).await?;
 
         Ok(Self {
@@ -98,18 +96,23 @@ impl FontDetector {
 
         let mut predictions = Vec::with_capacity(images.len());
         for (row, width) in rows.into_iter().zip(original_sizes) {
-            let ranked = top_k_softmax(&row[..FONT_COUNT], top_k.min(FONT_COUNT));
+            let ranked: Vec<TopFont> = top_k_softmax(&row[..FONT_COUNT], top_k.min(FONT_COUNT))
+                .into_iter()
+                .map(|(index, score)| TopFont { index, score })
+                .collect();
 
             let named_fonts = ranked
                 .iter()
-                .filter_map(|(idx, prob)| {
-                    self.labels.entry(*idx).map(|label| NamedFontPrediction {
-                        index: *idx,
-                        name: label.name.clone(),
-                        language: label.language.clone(),
-                        probability: *prob,
-                        serif: label.serif,
-                    })
+                .filter_map(|tf| {
+                    self.labels
+                        .entry(tf.index)
+                        .map(|label| NamedFontPrediction {
+                            index: tf.index,
+                            name: label.name.clone(),
+                            language: label.language.clone(),
+                            probability: tf.score,
+                            serif: label.serif,
+                        })
                 })
                 .collect();
 
@@ -185,7 +188,10 @@ pub struct FontLabels {
 
 impl FontLabels {
     pub async fn load(runtime: &RuntimeManager) -> Result<Self> {
-        let path = loading::resolve_manifest_path(Manifest::FontNames.get(runtime)).await?;
+        let path = runtime
+            .downloads()
+            .huggingface_model(HF_REPO, "font-labels-ex.json")
+            .await?;
         Self::from_path(&path)
     }
 

@@ -5,7 +5,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use koharu_llm::safe::llama_backend::LlamaBackend;
 use koharu_llm::{GenerateOptions, Language, Llm, ModelId};
-use koharu_runtime::{ComputePolicy, RuntimeManager, Settings};
+use koharu_runtime::{ComputePolicy, RuntimeManager, default_app_data_root};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -76,7 +76,7 @@ fn init_tracing() {
 
 fn build_runtime(cpu: bool) -> anyhow::Result<RuntimeManager> {
     RuntimeManager::new(
-        Settings::default(),
+        default_app_data_root(),
         if cpu {
             ComputePolicy::CpuOnly
         } else {
@@ -107,9 +107,10 @@ async fn main() -> anyhow::Result<()> {
         split_prompt: args.split_prompt,
         repeat_penalty: args.repeat_penalty,
         repeat_last_n: args.repeat_last_n,
+        ..args.model.default_generate_options()
     };
 
-    let out = llm.generate(&args.prompt, &opts, target_language)?;
+    let out = llm.generate(&args.prompt, &opts, target_language, None)?;
 
     println!("{}", out);
     println!(

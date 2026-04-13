@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ops::Range};
 
 use anyhow::Result;
-use harfrust::{Direction, Feature, Tag};
+use harfrust::{Feature, Tag};
 use skrifa::{
     MetadataProvider,
     instance::{LocationRef, Size},
@@ -9,6 +9,7 @@ use skrifa::{
 
 use crate::font::{Font, font_key};
 use crate::shape::shape_segment_with_fallbacks;
+use crate::text::script::shaping_direction_for_text;
 
 pub use crate::segment::{LineBreakOpportunity, LineBreaker, LineSegment};
 pub use crate::shape::{PositionedGlyph, ShapedRun, ShapingOptions, TextShaper};
@@ -27,15 +28,6 @@ impl WritingMode {
     /// Returns true if the writing mode is vertical.
     pub fn is_vertical(&self) -> bool {
         matches!(self, WritingMode::VerticalRl)
-    }
-}
-
-impl From<WritingMode> for Direction {
-    fn from(mode: WritingMode) -> Self {
-        match mode {
-            WritingMode::Horizontal => Direction::LeftToRight,
-            WritingMode::VerticalRl => Direction::TopToBottom,
-        }
     }
 }
 
@@ -65,6 +57,7 @@ pub struct LayoutRun<'a> {
     pub font_size: f32,
 }
 
+#[derive(Clone)]
 pub struct TextLayout<'a> {
     writing_mode: WritingMode,
     center_vertical_punctuation: bool,
@@ -127,14 +120,17 @@ impl<'a> TextLayout<'a> {
     }
 
     fn run_auto(&self, text: &str) -> Result<LayoutRun<'a>> {
+        let _s = tracing::info_span!("auto_size").entered();
         let max_height = self.max_height.unwrap_or(f32::INFINITY);
         let max_width = self.max_width.unwrap_or(f32::INFINITY);
 
         let mut low = 6;
         let mut high = 300;
         let mut best: Option<LayoutRun<'a>> = None;
+        let mut iterations = 0u32;
 
         while low <= high {
+            iterations += 1;
             let mid = (low + high) / 2;
             let size = mid as f32;
             let layout = self.run_with_size(text, size)?;
@@ -146,10 +142,21 @@ impl<'a> TextLayout<'a> {
             }
         }
 
-        best.ok_or_else(|| anyhow::anyhow!("failed to layout text within constraints"))
+        // If no size fits within constraints, fall back to the smallest size.
+        // This ensures we always render something even if the box is very small.
+        if best.is_none() {
+            best = Some(self.run_with_size(text, 6.0)?);
+        }
+        tracing::info!(
+            iterations,
+            font_size = best.as_ref().map(|b| b.font_size as u32).unwrap_or(0),
+            "auto_size done"
+        );
+        Ok(best.unwrap())
     }
 
     fn run_with_size(&self, text: &str, font_size: f32) -> Result<LayoutRun<'a>> {
+        let _s = tracing::debug_span!("layout_size", font_size = font_size as u32).entered();
         let shaper = TextShaper::new();
         let line_breaker = LineBreaker::new();
         let normalized_punctuation;
@@ -168,7 +175,7 @@ impl<'a> TextLayout<'a> {
         let line_height = (ascent + descent + metrics.leading).max(font_size);
 
         let opts = ShapingOptions {
-            direction: self.writing_mode.into(),
+            direction: shaping_direction_for_text(text, self.writing_mode),
             font_size,
             features: if self.writing_mode.is_vertical() {
                 &[

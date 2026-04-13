@@ -1,6 +1,8 @@
 {
   "common": {
-    "initializing": "初始化中..."
+    "initializing": "初始化中...",
+    "cancel": "取消",
+    "save": "保存"
   },
   "menu": {
     "file": "文件",
@@ -57,7 +59,11 @@
     "pages_one": "{{count}} 页",
     "pages_other": "{{count}} 页",
     "empty": "没有文档",
-    "prompt": "选择或导入页面开始"
+    "prompt": "选择或导入页面开始",
+    "pageManager": {
+      "title": "页面管理",
+      "description": "拖放页面以重新排列顺序。"
+    }
   },
   "panels": {
     "processing": "处理",
@@ -297,6 +303,63 @@
     "localLlmTesting": "测试中...",
     "localLlmTestSuccess": "已连接。发现 {{count}} 个模型。延迟：{{latency}}ms",
     "localLlmTestFailed": "连接失败：{{error}}",
-    "localLlmAdvanced": "高级设置"
+    "localLlmAdvanced": "高级设置",
+    "appConfig": "应用配置",
+    "runtime": "运行时",
+    "renderingFont": "渲染字体",
+    "renderingFontDescription": "将翻译文本渲染到图像时使用的字体。",
+    "providersDescription": "配置 LLM 提供商的 API 密钥和端点。",
+    "loadingProviders": "正在加载提供商...",
+    "apiKey": "API 密钥",
+    "apiKeyPlaceholderStored": "密钥已保存。输入新密钥以替换。",
+    "apiKeyPlaceholderEmpty": "输入 API 密钥",
+    "apiKeyStoredInKeychain": "已保存在钥匙串中",
+    "apiKeyClear": "清除",
+    "apiKeySave": "保存",
+    "apiKeySaved": "已保存！",
+    "dataPath": "数据路径",
+    "dataPathDescription": "Koharu 将模型、运行时包、页面清单和图像数据存储在此目录下。更改路径需要重启应用。",
+    "dataPathApply": "应用并重启",
+    "dataPathApplying": "正在应用...",
+    "dataPathDesktopOnly": "运行时设置仅在桌面应用中可用。",
+    "runtimeDescription": "用于下载和提供方请求的数据路径与 HTTP 设置。更改后需要重启应用。",
+    "httpConnectTimeout": "HTTP 连接超时（秒）",
+    "httpConnectTimeoutDescription": "建立 HTTP 连接前允许等待的最长时间。",
+    "httpReadTimeout": "HTTP 读取超时（秒）",
+    "httpReadTimeoutDescription": "读取 HTTP 响应前允许等待的最长时间。",
+    "httpMaxRetries": "HTTP 最大重试次数",
+    "httpMaxRetriesDescription": "发生临时 HTTP 故障时自动重试的次数。",
+    "restartApply": "应用并重启",
+    "restartApplying": "正在应用...",
+    "restartRequiredDescription": "这些设置会在启动时加载。应用后会保存配置并重启应用。",
+    "engines": "引擎",
+    "enginesDescription": "为每个流水线阶段选择要使用的ML引擎。",
+    "detector": "检测器",
+    "bubbleDetector": "Bubble Detector",
+    "fontDetector": "Font Detector",
+    "segmenter": "分割器",
+    "ocr": "OCR",
+    "translator": "翻译器",
+    "inpainter": "修补器",
+    "renderer": "渲染器"
+  },
+  "updater": {
+    "available": {
+      "title": "有可用更新",
+      "description": "Koharu <strong>{{version}}</strong> 已准备好安装"
+    },
+    "noNotes": "未提供发行说明。",
+    "later": "稍后",
+    "update": "更新",
+    "downloading": {
+      "title": "正在下载更新…",
+      "subtitle": "Koharu {{version}}"
+    },
+    "error": {
+      "title": "更新失败",
+      "description": "更新过程中出现问题"
+    },
+    "close": "关闭",
+    "retry": "重试"
   }
 }

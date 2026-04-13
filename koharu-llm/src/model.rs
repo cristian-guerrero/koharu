@@ -1,7 +1,6 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Once;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -16,10 +15,7 @@ use crate::safe::model::params::LlamaModelParams;
 use crate::safe::model::{AddBos, LlamaModel};
 use crate::safe::sampling::LlamaSampler;
 use crate::safe::token::LlamaToken;
-use crate::safe::{LogOptions, send_logs_to_tracing};
 use crate::{Language, ModelId};
-
-static LOGGING_READY: Once = Once::new();
 
 const DEFAULT_GPU_LAYERS: u32 = 1000;
 const MAX_UBATCH: u32 = 512;
@@ -39,10 +35,12 @@ pub struct GenerateOptions {
     pub temperature: f64,
     pub top_k: Option<usize>,
     pub top_p: Option<f64>,
+    pub min_p: Option<f64>,
     pub seed: u64,
     pub split_prompt: bool,
     pub repeat_penalty: f32,
     pub repeat_last_n: usize,
+    pub presence_penalty: f32,
 }
 
 impl Default for GenerateOptions {
@@ -52,10 +50,12 @@ impl Default for GenerateOptions {
             temperature: 0.1,
             top_k: None,
             top_p: None,
+            min_p: None,
             seed: 299792458,
             split_prompt: false,
             repeat_penalty: 1.1,
             repeat_last_n: 64,
+            presence_penalty: 0.0,
         }
     }
 }
@@ -82,10 +82,6 @@ impl Llm {
         model_path: PathBuf,
         backend: Arc<LlamaBackend>,
     ) -> Result<Self> {
-        LOGGING_READY.call_once(|| {
-            send_logs_to_tracing(LogOptions::default().with_logs_enabled(true));
-        });
-
         let model_params = model_params(cpu, backend.as_ref());
         let model = LlamaModel::load_from_file(backend.as_ref(), &model_path, &model_params)
             .with_context(|| format!("unable to load model from `{}`", model_path.display()))?;
@@ -117,15 +113,18 @@ impl Llm {
         prompt: &str,
         opts: &GenerateOptions,
         target_language: Language,
+        system_prompt: Option<&str>,
     ) -> Result<String> {
         if opts.max_tokens == 0 {
             return Ok(String::new());
         }
 
-        let prompt = self
-            .prompt_renderer
-            .format_chat_prompt(prompt.to_string(), target_language)?;
-        tracing::info!("Generating with prompt:\n{}", prompt);
+        let prompt = self.prompt_renderer.format_chat_prompt(
+            prompt.to_string(),
+            target_language,
+            system_prompt,
+        )?;
+        tracing::debug!("Generating with prompt:\n{}", prompt);
 
         let prompt_tokens = self
             .model
@@ -279,12 +278,14 @@ fn context_params(prompt_tokens: usize, max_tokens: usize) -> Result<LlamaContex
 fn build_sampler(opts: &GenerateOptions) -> LlamaSampler {
     let mut samplers = Vec::new();
 
-    if (opts.repeat_penalty - 1.0).abs() >= f32::EPSILON && opts.repeat_last_n > 0 {
+    let has_repeat = (opts.repeat_penalty - 1.0).abs() >= f32::EPSILON && opts.repeat_last_n > 0;
+    let has_presence = opts.presence_penalty.abs() >= f32::EPSILON;
+    if has_repeat || has_presence {
         samplers.push(LlamaSampler::penalties(
             i32::try_from(opts.repeat_last_n).unwrap_or(i32::MAX),
-            opts.repeat_penalty,
+            if has_repeat { opts.repeat_penalty } else { 1.0 },
             0.0,
-            0.0,
+            opts.presence_penalty,
         ));
     }
 
@@ -300,6 +301,9 @@ fn build_sampler(opts: &GenerateOptions) -> LlamaSampler {
     }
     if let Some(top_p) = opts.top_p {
         samplers.push(LlamaSampler::top_p(top_p as f32, 1));
+    }
+    if let Some(min_p) = opts.min_p.filter(|&v| v > 0.0) {
+        samplers.push(LlamaSampler::min_p(min_p as f32, 1));
     }
 
     samplers.push(LlamaSampler::temp(opts.temperature as f32));

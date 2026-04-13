@@ -1,10 +1,32 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import { MinusIcon, SquareIcon, XIcon, CopyIcon } from 'lucide-react'
-import { isTauri, isMacOS, windowControls } from '@/lib/backend'
+import { isTauri, openExternalUrl } from '@/lib/backend'
 import { useTranslation } from 'react-i18next'
+
+const isMacOS = () =>
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+
+const windowControls = {
+  async close() {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().close()
+  },
+  async minimize() {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().minimize()
+  },
+  async toggleMaximize() {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().toggleMaximize()
+  },
+  async isMaximized() {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    return getCurrentWindow().isMaximized()
+  },
+}
 import { fitCanvasToViewport, resetCanvasScale } from '@/components/Canvas'
 import Image from 'next/image'
 import {
@@ -15,7 +37,11 @@ import {
   MenubarSeparator,
   MenubarTrigger,
 } from '@/components/ui/menubar'
-import { useDocumentMutations } from '@/lib/query/mutations'
+import { SettingsDialog, type TabId } from '@/components/SettingsDialog'
+import { useProcessing } from '@/lib/machines'
+import { useEditorUiStore } from '@/lib/stores/editorUiStore'
+import { usePreferencesStore } from '@/lib/stores/preferencesStore'
+import type { PipelineJobRequest } from '@/lib/api/schemas'
 
 type MenuItem = {
   label: string
@@ -32,60 +58,87 @@ type MenuSection = {
 
 export function MenuBar() {
   const { t } = useTranslation()
-  const {
-    addDocuments,
-    openDocuments,
-    openFolder,
-    addFolder,
-    openExternal,
-    processImage,
-    inpaintAndRenderImage,
-    processAllImages,
-    exportDocument,
-    exportPsdDocument,
-    exportAllInpainted,
-    exportAllRendered,
-  } = useDocumentMutations()
+  const { send } = useProcessing()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<TabId>('appearance')
+  const hasDocument = useEditorUiStore((state) => state.currentDocumentId !== null)
+
+  const buildPipelineRequest = (documentId?: string): PipelineJobRequest => {
+    const { selectedTarget, selectedLanguage, renderEffect, renderStroke } =
+      useEditorUiStore.getState()
+    const { customSystemPrompt } = usePreferencesStore.getState()
+    return {
+      documentId,
+      llm: selectedTarget ? { target: selectedTarget } : undefined,
+      language: selectedLanguage,
+      systemPrompt: customSystemPrompt,
+      shaderEffect: renderEffect,
+      shaderStroke: renderStroke,
+    }
+  }
+
+  const requireDocumentId = () => {
+    const id = useEditorUiStore.getState().currentDocumentId
+    if (!id) throw new Error('No current document selected')
+    return id
+  }
 
   const fileMenuItems: MenuItem[] = [
     {
       label: t('menu.openFile'),
-      onSelect: openDocuments,
+      onSelect: () =>
+        send({ type: 'START_IMPORT', mode: 'replace', source: 'files' }),
       testId: 'menu-file-open',
     },
     {
       label: t('menu.addFile'),
-      onSelect: addDocuments,
+      onSelect: () =>
+        send({ type: 'START_IMPORT', mode: 'append', source: 'files' }),
       testId: 'menu-file-add',
     },
     {
       label: t('menu.openFolder'),
-      onSelect: openFolder,
+      onSelect: () =>
+        send({ type: 'START_IMPORT', mode: 'replace', source: 'folder' }),
       testId: 'menu-file-open-folder',
     },
     {
       label: t('menu.addFolder'),
-      onSelect: addFolder,
+      onSelect: () =>
+        send({ type: 'START_IMPORT', mode: 'append', source: 'folder' }),
       testId: 'menu-file-add-folder',
     },
     {
       label: t('menu.export'),
-      onSelect: exportDocument,
+      onSelect: () =>
+        send({
+          type: 'START_EXPORT',
+          documentId: requireDocumentId(),
+          format: 'webp',
+          params: { layer: 'rendered' },
+        }),
+      disabled: !hasDocument,
       testId: 'menu-file-export',
     },
     {
       label: t('menu.exportPsd'),
-      onSelect: exportPsdDocument,
+      onSelect: () =>
+        send({
+          type: 'START_EXPORT',
+          documentId: requireDocumentId(),
+          format: 'psd',
+        }),
+      disabled: !hasDocument,
       testId: 'menu-file-export-psd',
     },
     {
       label: t('menu.exportAllInpainted'),
-      onSelect: exportAllInpainted,
+      onSelect: () => send({ type: 'START_BATCH_EXPORT', layer: 'inpainted' }),
       testId: 'menu-file-export-all-inpainted',
     },
     {
       label: t('menu.exportAllRendered'),
-      onSelect: exportAllRendered,
+      onSelect: () => send({ type: 'START_BATCH_EXPORT', layer: 'rendered' }),
       testId: 'menu-file-export-all-rendered',
     },
   ]
@@ -104,17 +157,29 @@ export function MenuBar() {
       items: [
         {
           label: t('menu.processCurrent'),
-          onSelect: processImage,
+          onSelect: () => {
+            const documentId = requireDocumentId()
+            send({
+              type: 'START_PIPELINE',
+              request: buildPipelineRequest(documentId),
+            })
+          },
+          disabled: !hasDocument,
           testId: 'menu-process-current',
         },
         {
           label: t('menu.redoInpaintRender'),
-          onSelect: inpaintAndRenderImage,
+          onSelect: () => {
+            const documentId = requireDocumentId()
+            send({ type: 'START_INPAINT', documentId })
+          },
+          disabled: !hasDocument,
           testId: 'menu-process-rerender',
         },
         {
           label: t('menu.processAll'),
-          onSelect: processAllImages,
+          onSelect: () =>
+            send({ type: 'START_PIPELINE', request: buildPipelineRequest() }),
           testId: 'menu-process-all',
         },
       ],
@@ -124,11 +189,11 @@ export function MenuBar() {
   const helpMenuItems: MenuItem[] = [
     {
       label: t('menu.discord'),
-      onSelect: () => openExternal('https://discord.gg/mHvHkxGnUY'),
+      onSelect: () => openExternalUrl('https://discord.gg/mHvHkxGnUY'),
     },
     {
       label: t('menu.github'),
-      onSelect: () => openExternal('https://github.com/mayocream/koharu'),
+      onSelect: () => openExternalUrl('https://github.com/mayocream/koharu'),
     },
   ]
 
@@ -184,10 +249,14 @@ export function MenuBar() {
               </MenubarItem>
             ))}
             <MenubarSeparator />
-            <MenubarItem className='text-[13px]' asChild>
-              <Link href='/settings' prefetch={false}>
-                {t('menu.settings')}
-              </Link>
+            <MenubarItem
+              className='text-[13px]'
+              onSelect={() => {
+                setSettingsTab('appearance')
+                setSettingsOpen(true)
+              }}
+            >
+              {t('menu.settings')}
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
@@ -252,10 +321,14 @@ export function MenuBar() {
               </MenubarItem>
             ))}
             <MenubarSeparator />
-            <MenubarItem className='text-[13px]' asChild>
-              <Link href='/about' prefetch={false}>
-                {t('settings.about')}
-              </Link>
+            <MenubarItem
+              className='text-[13px]'
+              onSelect={() => {
+                setSettingsTab('about')
+                setSettingsOpen(true)
+              }}
+            >
+              {t('settings.about')}
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
@@ -269,6 +342,12 @@ export function MenuBar() {
 
       {/* Window controls for Windows */}
       {isWindowsTauri && <WindowControls />}
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        defaultTab={settingsTab}
+      />
     </div>
   )
 }

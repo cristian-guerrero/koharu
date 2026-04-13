@@ -1,6 +1,8 @@
 {
   "common": {
-    "initializing": "Inicializando..."
+    "initializing": "Inicializando...",
+    "cancel": "Cancelar",
+    "save": "Salvar"
   },
   "menu": {
     "file": "Arquivo",
@@ -57,7 +59,11 @@
     "pages_one": "{{count}} página",
     "pages_other": "{{count}} páginas",
     "empty": "Nenhum documento",
-    "prompt": "Selecione ou importe uma página para começar"
+    "prompt": "Selecione ou importe uma página para começar",
+    "pageManager": {
+      "title": "Gerenciador de páginas",
+      "description": "Arraste e solte as páginas para reordená-las."
+    }
   },
   "panels": {
     "processing": "Processamento",
@@ -297,6 +303,63 @@
     "localLlmTesting": "Testando...",
     "localLlmTestSuccess": "Conectado. {{count}} modelo(s) encontrado(s). Latência: {{latency}}ms",
     "localLlmTestFailed": "Falha na conexão: {{error}}",
-    "localLlmAdvanced": "Avançado"
+    "localLlmAdvanced": "Avançado",
+    "appConfig": "Configuração do App",
+    "runtime": "Runtime",
+    "renderingFont": "Fonte de Renderização",
+    "renderingFontDescription": "Fonte usada ao renderizar o texto traduzido nas imagens.",
+    "providersDescription": "Configure as chaves de API e endpoints dos provedores de LLM.",
+    "loadingProviders": "Carregando provedores...",
+    "apiKey": "Chave de API",
+    "apiKeyPlaceholderStored": "Chave salva. Digite uma nova para substituir.",
+    "apiKeyPlaceholderEmpty": "Digite a chave de API",
+    "apiKeyStoredInKeychain": "Salva no chaveiro",
+    "apiKeyClear": "Remover",
+    "apiKeySave": "Salvar",
+    "apiKeySaved": "Salva!",
+    "dataPath": "Caminho dos Dados",
+    "dataPathDescription": "O Koharu armazena modelos, pacotes de runtime, manifestos de páginas e blobs de imagens neste diretório. Alterar o caminho requer reiniciar o aplicativo.",
+    "dataPathApply": "Aplicar e Reiniciar",
+    "dataPathApplying": "Aplicando...",
+    "dataPathDesktopOnly": "As configurações de runtime estão disponíveis apenas no aplicativo de desktop.",
+    "runtimeDescription": "Caminho de dados e configurações HTTP usadas para downloads e requisições aos provedores. Alterações exigem reiniciar o aplicativo.",
+    "httpConnectTimeout": "Tempo limite de conexão HTTP (s)",
+    "httpConnectTimeoutDescription": "Tempo máximo para estabelecer uma conexão HTTP antes de falhar.",
+    "httpReadTimeout": "Tempo limite de leitura HTTP (s)",
+    "httpReadTimeoutDescription": "Tempo máximo de espera para ler uma resposta HTTP antes de falhar.",
+    "httpMaxRetries": "Máximo de tentativas HTTP",
+    "httpMaxRetriesDescription": "Número de tentativas automáticas para falhas HTTP transitórias.",
+    "restartApply": "Aplicar e reiniciar",
+    "restartApplying": "Aplicando...",
+    "restartRequiredDescription": "Essas configurações são carregadas na inicialização. Aplicá-las salvará a configuração e reiniciará o aplicativo.",
+    "engines": "Motores",
+    "enginesDescription": "Selecione qual motor ML usar para cada etapa do pipeline.",
+    "detector": "Detector",
+    "bubbleDetector": "Bubble Detector",
+    "fontDetector": "Font Detector",
+    "segmenter": "Segmentador",
+    "ocr": "OCR",
+    "translator": "Tradutor",
+    "inpainter": "Inpainter",
+    "renderer": "Renderizador"
+  },
+  "updater": {
+    "available": {
+      "title": "Atualização disponível",
+      "description": "Koharu <strong>{{version}}</strong> está pronto para instalar"
+    },
+    "noNotes": "Nenhuma nota de versão fornecida.",
+    "later": "Mais tarde",
+    "update": "Atualizar",
+    "downloading": {
+      "title": "Baixando atualização…",
+      "subtitle": "Koharu {{version}}"
+    },
+    "error": {
+      "title": "Falha na atualização",
+      "description": "Algo deu errado durante a atualização"
+    },
+    "close": "Fechar",
+    "retry": "Tentar novamente"
   }
 }

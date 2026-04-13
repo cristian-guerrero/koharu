@@ -67,7 +67,13 @@ export type TextBlock = {
   translation?: string
   style?: TextStyle
   fontPrediction?: FontPrediction
-  rendered?: Uint8Array
+  /** Blob hash for the rendered text block sprite. */
+  rendered?: string
+  /** Actual render area (when bubble expansion is used). */
+  renderX?: number
+  renderY?: number
+  renderWidth?: number
+  renderHeight?: number
 }
 
 export type ToolMode = 'select' | 'block' | 'brush' | 'repairBrush' | 'eraser'
@@ -77,19 +83,4 @@ export type InpaintRegion = {
   y: number
   width: number
   height: number
-}
-
-export type Document = {
-  id: string
-  path: string
-  name: string
-  image: Uint8Array
-  width: number
-  height: number
-  revision?: number
-  textBlocks: TextBlock[]
-  segment?: Uint8Array
-  inpainted?: Uint8Array
-  brushLayer?: Uint8Array
-  rendered?: Uint8Array
 }

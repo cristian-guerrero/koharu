@@ -1,6 +1,8 @@
 {
   "common": {
-    "initializing": "Inicializando..."
+    "initializing": "Inicializando...",
+    "cancel": "Cancelar",
+    "save": "Guardar"
   },
   "menu": {
     "file": "Archivo",
@@ -57,7 +59,11 @@
     "pages_one": "{{count}} página",
     "pages_other": "{{count}} páginas",
     "empty": "No hay documentos",
-    "prompt": "Selecciona o importa una página para comenzar"
+    "prompt": "Selecciona o importa una página para comenzar",
+    "pageManager": {
+      "title": "Gestor de páginas",
+      "description": "Arrastra y suelta las páginas para reordenarlas."
+    }
   },
   "panels": {
     "processing": "Procesamiento",
@@ -297,6 +303,63 @@
     "localLlmTesting": "Probando...",
     "localLlmTestSuccess": "Conectado. {{count}} modelo(s) encontrados. Latencia: {{latency}}ms",
     "localLlmTestFailed": "Error de conexión: {{error}}",
-    "localLlmAdvanced": "Avanzado"
+    "localLlmAdvanced": "Avanzado",
+    "appConfig": "Configuración de la app",
+    "runtime": "Runtime",
+    "renderingFont": "Fuente de renderizado",
+    "renderingFontDescription": "Fuente utilizada al renderizar el texto traducido sobre las imágenes.",
+    "providersDescription": "Configura las claves API y los endpoints de los proveedores de LLM.",
+    "loadingProviders": "Cargando proveedores...",
+    "apiKey": "Clave API",
+    "apiKeyPlaceholderStored": "Clave guardada. Introduce una nueva para reemplazarla.",
+    "apiKeyPlaceholderEmpty": "Introduce la clave API",
+    "apiKeyStoredInKeychain": "Guardada en el llavero",
+    "apiKeyClear": "Eliminar",
+    "apiKeySave": "Guardar",
+    "apiKeySaved": "¡Guardada!",
+    "dataPath": "Ruta de datos",
+    "dataPathDescription": "Koharu almacena modelos, paquetes del runtime, manifiestos de páginas y blobs de imágenes en este directorio. Cambiar la ruta requiere reiniciar la aplicación.",
+    "dataPathApply": "Aplicar y reiniciar",
+    "dataPathApplying": "Aplicando...",
+    "dataPathDesktopOnly": "La configuración de runtime solo está disponible en la aplicación de escritorio.",
+    "runtimeDescription": "Ruta de datos y ajustes HTTP usados para descargas y solicitudes a proveedores. Los cambios requieren reiniciar la aplicación.",
+    "httpConnectTimeout": "Tiempo de espera de conexión HTTP (s)",
+    "httpConnectTimeoutDescription": "Tiempo máximo para establecer una conexión HTTP antes de fallar.",
+    "httpReadTimeout": "Tiempo de espera de lectura HTTP (s)",
+    "httpReadTimeoutDescription": "Tiempo máximo de espera para leer una respuesta HTTP antes de fallar.",
+    "httpMaxRetries": "Máximo de reintentos HTTP",
+    "httpMaxRetriesDescription": "Número de reintentos automáticos para fallos HTTP transitorios.",
+    "restartApply": "Aplicar y reiniciar",
+    "restartApplying": "Aplicando...",
+    "restartRequiredDescription": "Estos ajustes se cargan al iniciar. Aplicarlos guardará la configuración y reiniciará la aplicación.",
+    "engines": "Motores",
+    "enginesDescription": "Selecciona qué motor ML usar para cada etapa del pipeline.",
+    "detector": "Detector",
+    "bubbleDetector": "Bubble Detector",
+    "fontDetector": "Font Detector",
+    "segmenter": "Segmentador",
+    "ocr": "OCR",
+    "translator": "Traductor",
+    "inpainter": "Inpainter",
+    "renderer": "Renderizador"
+  },
+  "updater": {
+    "available": {
+      "title": "Actualización disponible",
+      "description": "Koharu <strong>{{version}}</strong> está listo para instalar"
+    },
+    "noNotes": "No se proporcionaron notas de versión.",
+    "later": "Más tarde",
+    "update": "Actualizar",
+    "downloading": {
+      "title": "Descargando actualización…",
+      "subtitle": "Koharu {{version}}"
+    },
+    "error": {
+      "title": "Error de actualización",
+      "description": "Algo salió mal durante la actualización"
+    },
+    "close": "Cerrar",
+    "retry": "Reintentar"
   }
 }

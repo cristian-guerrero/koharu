@@ -1,3 +1,145 @@
+## [0.43.2](https://github.com/mayocream/koharu/compare/0.43.1..0.43.2) - 2026-04-06
+
+### ⛰️  Features
+
+- Change sort_manga_read_order algorithm for better ordering ([#349](https://github.com/mayocream/koharu/issues/349)) - ([3b31ecc](https://github.com/mayocream/koharu/commit/3b31eccee898a89eb2879928b25371a48c2d4851))
+
+### 🐛 Bug Fixes
+
+- *(ui)* Keep process-all semantics for single-image batches - ([5f99fbf](https://github.com/mayocream/koharu/commit/5f99fbf071b89987c12c8ee36a0c520a44c10fa6))
+- Store app-level global font - ([a2eeb1c](https://github.com/mayocream/koharu/commit/a2eeb1c6628001d85ec7b2b75805c1f46b78e5ca))
+- Cl path error on dev script, ([#348](https://github.com/mayocream/koharu/issues/348)) - ([d0885a8](https://github.com/mayocream/koharu/commit/d0885a8fbd36a60924feba55004e6a5085dedd4d))
+- Preserve font inheritance when editing defaults - ([215a5b6](https://github.com/mayocream/koharu/commit/215a5b6e74c70519f1d145b32605f51232503e86))
+- Persist font selection to document default when block is selected - ([434d27f](https://github.com/mayocream/koharu/commit/434d27fb691574f00b0f79f559ffa899d69e3fb9))
+- Apply selected global font - ([142fb63](https://github.com/mayocream/koharu/commit/142fb6360749de4a2e15d02661af344cbb42b6b1))
+- Batch procssing pipeline - ([537f088](https://github.com/mayocream/koharu/commit/537f088bba316f7f4006cd7d099c7a0e69328bd0))
+- Enhance pipeline processing - ([d8e3bce](https://github.com/mayocream/koharu/commit/d8e3bced01de2e560309a41c9c54a02d95aa58d5))
+
+## New Contributors ❤️
+
+* @liksunrice made their first contribution in [#349](https://github.com/mayocream/koharu/pull/349)
+* @louisoes05-png made their first contribution
+* @cyphercodes made their first contribution
+
+## [0.43.1](https://github.com/mayocream/koharu/compare/0.43.0..0.43.1) - 2026-04-05
+
+### 🐛 Bug Fixes
+
+- Qwen3.5 template - ([eecfafe](https://github.com/mayocream/koharu/commit/eecfafe6a4f0aa1d87002e57a9f939c675dbcf63))
+
+### 📚 Documentation
+
+- List more LLMs - ([37162b9](https://github.com/mayocream/koharu/commit/37162b9565bde61940562a998b3699310e0d789f))
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix tests - ([d530cbe](https://github.com/mayocream/koharu/commit/d530cbe1d530388c22d8b980edcc83db79e3ac63))
+
+
+## [0.43.0](https://github.com/mayocream/koharu/compare/0.42.4..0.43.0) - 2026-04-05
+
+### ⛰️  Features
+
+- Custom system prompt - ([d3e6b06](https://github.com/mayocream/koharu/commit/d3e6b0650c24552367e073fe9e446bd8c7acdea2))
+- Add uncensored LLMs - ([7814d1e](https://github.com/mayocream/koharu/commit/7814d1efad9d66a801521ef693d3136553f38be4))
+- Add gemma4 and qwen3.5 models - ([e6262e4](https://github.com/mayocream/koharu/commit/e6262e49e92ce7b7cac853df9d31835faa3b9a98))
+- Replce lfm2-350m-enjp-mt with lfm2.5-1.2b-instruct - ([4d2e5ef](https://github.com/mayocream/koharu/commit/4d2e5ef42905fa4aa0c8f7294f3fc58c1e002272))
+- Update llama.cpp to b8665 - ([cd86637](https://github.com/mayocream/koharu/commit/cd866371a074cfb374cd5f6a5327e98f6c2ccb82))
+- Google fonts - ([177767f](https://github.com/mayocream/koharu/commit/177767f1132208a2c909f5446f5fcfa01dec6ef9))
+
+### 🐛 Bug Fixes
+
+- *(ui)* Invalidate stale font style - ([d12cec0](https://github.com/mayocream/koharu/commit/d12cec0c299d6e4295691c55f39598d173bf9ead))
+- Scroll on canvas - ([bfc0aef](https://github.com/mayocream/koharu/commit/bfc0aefa9f20118608b183df070e72ebb39810d7))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(ui)* Rename section name - ([d6bf317](https://github.com/mayocream/koharu/commit/d6bf31729d8acea7f8c2691bee639b89a9e2f5ce))
+- Format code - ([04b9034](https://github.com/mayocream/koharu/commit/04b90343d5c564729f41eca1bb2ef9b1bcb2c2c1))
+- Format code - ([65bb821](https://github.com/mayocream/koharu/commit/65bb821e1a79aafca46a288ac1b51bccc43ef90c))
+
+
+## [0.42.4](https://github.com/mayocream/koharu/compare/0.42.3..0.42.4) - 2026-04-05
+
+### 🐛 Bug Fixes
+
+- Http timeouts - ([676495f](https://github.com/mayocream/koharu/commit/676495f96179907b162a57f6453808e7f2c97ab7))
+
+
+## [0.42.3](https://github.com/mayocream/koharu/compare/0.42.2..0.42.3) - 2026-04-05
+
+### 🐛 Bug Fixes
+
+- Predict stroke color - ([53617b6](https://github.com/mayocream/koharu/commit/53617b62c5d20f11011974f932c4d1a433a02199))
+- Pin libz-sys to 1.1.25 - ([cae9542](https://github.com/mayocream/koharu/commit/cae9542a3aaf49a0b3c9e0da917b4e70e7308102))
+
+### 📚 Documentation
+
+- Rephrase - ([7d27635](https://github.com/mayocream/koharu/commit/7d27635b6aa75950c691922ea9d6c81f77dcfcc8))
+
+### 🧪 Testing
+
+- Remove outdated - ([31f13dc](https://github.com/mayocream/koharu/commit/31f13dcf0ac1d37aa4eb76e6289c0f71a2781372))
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove ts-rs env - ([ef5cb84](https://github.com/mayocream/koharu/commit/ef5cb84812aa687d4070a84e4fd75d1b48a46aab))
+- Disable github changelog - ([3847dcd](https://github.com/mayocream/koharu/commit/3847dcdde45a699b119a827ef9f016693b2447cf))
+
+
+## [0.42.2](https://github.com/mayocream/koharu/compare/0.42.1..0.42.2) - 2026-04-04
+
+### 🐛 Bug Fixes
+
+- Cuda startup failure - ([766662b](https://github.com/mayocream/koharu/commit/766662beaa293e54e98bdf6c35c5447830a25525))
+
+### 📚 Documentation
+
+- Reflect new models - ([873236b](https://github.com/mayocream/koharu/commit/873236b7a0225475e7c9a43c349dfa2300163142))
+
+
+## [0.42.1](https://github.com/mayocream/koharu/compare/0.42.0..0.42.1) - 2026-04-04
+
+### 🐛 Bug Fixes
+
+- Tauri remote url - ([770a477](https://github.com/mayocream/koharu/commit/770a477213d15bcc81cb6cc59fdb3c2b93482216))
+
+
+## [0.42.0](https://github.com/mayocream/koharu/compare/0.41.4..0.42.0) - 2026-04-04
+
+### ⛰️  Features
+
+- *(ui)* Settings dialog, i18n, and initialization screen - ([290904d](https://github.com/mayocream/koharu/commit/290904db966c5fe293d972353a17803c5cad8015))
+- Sort manga reading order - ([18f2b42](https://github.com/mayocream/koharu/commit/18f2b42ebaa50fb23655bc116fae11ff40999f2c))
+- Blob API, bubble/AOT-inpainting models, and rendering redesign - ([004a94a](https://github.com/mayocream/koharu/commit/004a94a005c3c3a0ffaa14dd411af578ab2237be))
+- Custom tracing layer and log suppression - ([aa91dbd](https://github.com/mayocream/koharu/commit/aa91dbd7e36268b09224c810ce6b23fd34652eab))
+- Pluggable engine system with DAG pipeline - ([c84cfad](https://github.com/mayocream/koharu/commit/c84cfad0751e43bf980179d856a9146885bbb971))
+- Add Portuguese (pt-BR) translations ([#317](https://github.com/mayocream/koharu/issues/317)) - ([ed6e4ac](https://github.com/mayocream/koharu/commit/ed6e4ac157687af3d6810bcbfd4d1f2e2f3420fe))
+- Disabling keyring using --no-keyring ([#308](https://github.com/mayocream/koharu/issues/308)) - ([f470146](https://github.com/mayocream/koharu/commit/f470146e1b017f225e9ef797df942ed5c5a27f81))
+- Add Korean (ko-KR) locale and translate ([#316](https://github.com/mayocream/koharu/issues/316)) - ([1d1b3df](https://github.com/mayocream/koharu/commit/1d1b3df09d49874584aa8e8cb42f0d2796c918b1))
+- Add Turkish UI localization ([#315](https://github.com/mayocream/koharu/issues/315)) - ([4a99909](https://github.com/mayocream/koharu/commit/4a99909118c103dde880176c7edb4324a53d0b98))
+
+### 🚜 Refactor
+
+- *(ui)* Centralize error handling with XState - ([e29b31e](https://github.com/mayocream/koharu/commit/e29b31ebdf6bcdc760f60df889cccfbfe8681b95))
+- Simplify Tauri setup and dev server - ([f301793](https://github.com/mayocream/koharu/commit/f3017931daee53999bbf878038e6260d6599b7a5))
+- Rewrite backend storage, config, and runtime - ([ed48490](https://github.com/mayocream/koharu/commit/ed48490d715a13039fabf839573029adc119f2fe))
+- OpenAPI codegen with utoipa and Orval - ([1502ac0](https://github.com/mayocream/koharu/commit/1502ac04d2b53b85a9aaae6067a3c5917a3d6d8f))
+
+### ⚡ Performance
+
+- Improve ctd - ([ae85e1a](https://github.com/mayocream/koharu/commit/ae85e1ac57b12e04c69b005af943a2faeee9c44b))
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove macos warnings - ([58e5391](https://github.com/mayocream/koharu/commit/58e539104d4c60621f549f31fec2b5f944e96199))
+
+## New Contributors ❤️
+
+* @gabrieljcodes made their first contribution in [#317](https://github.com/mayocream/koharu/pull/317)
+* @DevNergis made their first contribution in [#316](https://github.com/mayocream/koharu/pull/316)
+* @toufudealer made their first contribution in [#315](https://github.com/mayocream/koharu/pull/315)
+
 ## [0.41.4](https://github.com/mayocream/koharu/compare/0.41.3..0.41.4) - 2026-03-30
 
 ### ⚙️ Miscellaneous Tasks

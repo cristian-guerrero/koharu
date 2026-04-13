@@ -1,16 +1,45 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use camino::Utf8PathBuf;
 use reqwest_middleware::ClientWithMiddleware;
 use tokio::sync::broadcast;
 
-use crate::artifacts::ArtifactStore;
-use crate::downloads::TransferHub;
-use crate::http::HttpStack;
-use crate::layout::Layout;
+use crate::downloads::Downloads;
 use crate::packages::PackageCatalog;
-use crate::{ComputePolicy, Settings};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputePolicy {
+    PreferGpu,
+    CpuOnly,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeHttpConfig {
+    pub connect_timeout_secs: u64,
+    pub read_timeout_secs: u64,
+    pub max_retries: u32,
+}
+
+impl Default for RuntimeHttpConfig {
+    fn default() -> Self {
+        Self {
+            connect_timeout_secs: 20,
+            read_timeout_secs: 300,
+            max_retries: 3,
+        }
+    }
+}
+
+pub fn default_app_data_root() -> Utf8PathBuf {
+    let root = dirs::data_local_dir()
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Koharu");
+    Utf8PathBuf::from_path_buf(root)
+        .unwrap_or_else(|path| Utf8PathBuf::from(path.to_string_lossy().into_owned()))
+}
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -18,125 +47,75 @@ pub struct Runtime {
 }
 
 struct RuntimeInner {
-    settings: Settings,
+    root: PathBuf,
     compute: ComputePolicy,
-    layout: Layout,
-    http: HttpStack,
-    transfers: TransferHub,
-    artifacts: ArtifactStore,
+    downloads: Downloads,
     packages: PackageCatalog,
 }
 
-#[derive(Debug, Clone)]
-pub struct RuntimeBuilder {
-    settings: Settings,
-    compute: ComputePolicy,
-}
-
 impl Runtime {
-    pub fn builder(settings: Settings) -> RuntimeBuilder {
-        RuntimeBuilder::new(settings)
+    pub fn new(root: impl Into<PathBuf>, compute: ComputePolicy) -> Result<Self> {
+        Self::new_with_http(root, compute, RuntimeHttpConfig::default())
     }
 
-    pub fn new(settings: Settings, compute: ComputePolicy) -> Result<Self> {
-        RuntimeBuilder::new(settings)
-            .compute_policy(compute)
-            .build()
+    pub fn new_with_http(
+        root: impl Into<PathBuf>,
+        compute: ComputePolicy,
+        http: RuntimeHttpConfig,
+    ) -> Result<Self> {
+        let root = root.into();
+        let downloads = Downloads::new(
+            root.join("runtime").join(".downloads"),
+            root.join("models").join("huggingface"),
+            &http,
+        )?;
+
+        Ok(Self {
+            inner: Arc::new(RuntimeInner {
+                root,
+                compute,
+                downloads,
+                packages: PackageCatalog::discover(),
+            }),
+        })
     }
 
-    pub fn settings(&self) -> &Settings {
-        &self.inner.settings
-    }
-
-    pub fn layout(&self) -> &Layout {
-        &self.inner.layout
-    }
-
-    pub fn runtime_root(&self) -> &Path {
-        self.layout().runtime_root()
-    }
-
-    pub fn models_root(&self) -> &Path {
-        self.layout().models_root()
-    }
-
-    pub fn downloads_root(&self) -> PathBuf {
-        self.layout().downloads_root().to_path_buf()
-    }
-
-    pub fn http_proxy(&self) -> Option<&url::Url> {
-        self.settings().http_proxy()
+    pub fn root(&self) -> &Path {
+        &self.inner.root
     }
 
     pub fn wants_gpu(&self) -> bool {
-        self.inner.compute.wants_gpu()
+        matches!(self.inner.compute, ComputePolicy::PreferGpu)
     }
 
     pub fn http_client(&self) -> Arc<ClientWithMiddleware> {
-        self.inner.http.client()
+        self.inner.downloads.client()
     }
 
     pub fn subscribe_downloads(&self) -> broadcast::Receiver<koharu_core::DownloadProgress> {
-        self.inner.transfers.subscribe()
+        self.inner.downloads.subscribe()
     }
 
-    pub fn artifacts(&self) -> ArtifactStore {
-        self.inner.artifacts.clone()
-    }
-
-    pub fn catalog(&self) -> &PackageCatalog {
-        &self.inner.packages
-    }
-
-    pub fn needs_bootstrap(&self) -> Result<bool> {
-        self.catalog().requires_bootstrap(self)
+    pub fn downloads(&self) -> Downloads {
+        self.inner.downloads.clone()
     }
 
     pub async fn prepare(&self) -> Result<()> {
-        self.layout().ensure_roots()?;
-        self.catalog().prepare_bootstrap(self).await
+        let dirs = [
+            self.root().join("runtime"),
+            self.root().join("runtime").join(".downloads"),
+            self.root().join("models"),
+            self.root().join("models").join("huggingface"),
+        ];
+        for dir in dirs {
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("failed to create `{}`", dir.display()))?;
+        }
+        self.inner.packages.prepare_bootstrap(self).await
     }
 
     pub fn llama_directory(&self) -> Result<PathBuf> {
         crate::llama::runtime_dir(self)
-    }
-}
-
-impl RuntimeBuilder {
-    pub fn new(settings: Settings) -> Self {
-        Self {
-            settings,
-            compute: ComputePolicy::PreferGpu,
-        }
-    }
-
-    pub fn compute_policy(mut self, compute: ComputePolicy) -> Self {
-        self.compute = compute;
-        self
-    }
-
-    pub fn cpu_only(self) -> Self {
-        self.compute_policy(ComputePolicy::CpuOnly)
-    }
-
-    pub fn build(self) -> Result<Runtime> {
-        let settings = self.settings.apply_process_overrides();
-        let layout = Layout::from_settings(&settings);
-        let http = HttpStack::new(&settings)?;
-        let transfers = TransferHub::new();
-        let artifacts = ArtifactStore::new(layout.clone(), http.clone(), transfers.clone());
-
-        Ok(Runtime {
-            inner: Arc::new(RuntimeInner {
-                settings,
-                compute: self.compute,
-                layout,
-                http,
-                transfers,
-                artifacts,
-                packages: PackageCatalog::discover(),
-            }),
-        })
     }
 }
 
@@ -154,13 +133,7 @@ mod tests {
     #[ignore]
     async fn prepares_llama_runtime_into_configured_root() -> Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let runtime = Runtime::new(
-            Settings::from_paths(
-                tempdir.path().join("runtime"),
-                tempdir.path().join("models"),
-            ),
-            ComputePolicy::CpuOnly,
-        )?;
+        let runtime = Runtime::new(tempdir.path(), ComputePolicy::CpuOnly)?;
         runtime.prepare().await?;
         assert!(runtime.llama_directory()?.exists());
         Ok(())
@@ -170,13 +143,7 @@ mod tests {
     #[ignore]
     async fn repeated_basename_loads_succeed_after_prepare() -> Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let runtime = Runtime::new(
-            Settings::from_paths(
-                tempdir.path().join("runtime"),
-                tempdir.path().join("models"),
-            ),
-            ComputePolicy::CpuOnly,
-        )?;
+        let runtime = Runtime::new(tempdir.path(), ComputePolicy::CpuOnly)?;
         runtime.prepare().await?;
         let dir = runtime.llama_directory()?;
 

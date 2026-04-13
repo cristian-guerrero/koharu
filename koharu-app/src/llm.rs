@@ -1,56 +1,44 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
-use serde::Serialize;
+use koharu_llm::providers::{
+    AnyProvider, ProviderCatalogModels, ProviderConfig, all_provider_descriptors, build_provider,
+    discover_models,
+};
 use tokio::sync::{RwLock, broadcast};
+use tracing::instrument;
 
-use koharu_core::{Document, LlmState, LlmStateStatus, TextBlock};
+use koharu_core::{
+    Document, LlmCatalog, LlmCatalogModel, LlmGenerationOptions, LlmLoadRequest,
+    LlmProviderCatalog, LlmProviderCatalogStatus, LlmState, LlmStateStatus, LlmTarget,
+    LlmTargetKind, TextBlock,
+};
 use koharu_runtime::RuntimeManager;
 
 use koharu_llm::{
-    GenerateOptions, Language, Llm, ModelId, language::tags as language_tags,
-    safe::llama_backend::LlamaBackend, supported_locales,
+    Language, Llm, ModelId, language::tags as language_tags, safe::llama_backend::LlamaBackend,
+    supported_locales,
 };
+use strum::IntoEnumIterator;
+
+use crate::AppResources;
+use crate::config as app_config;
 
 pub use koharu_llm::prefetch;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BlockStartTag {
-    offset: usize,
-    len: usize,
-    id: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BlockEndTag {
-    offset: usize,
-    len: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelInfo {
-    pub id: String,
-    pub languages: Vec<String>,
-    pub source: &'static str,
-}
-
-impl ModelInfo {
-    pub fn new(id: ModelId) -> Self {
-        let languages = id.languages();
-        Self {
-            id: id.to_string(),
-            languages: language_tags(&languages),
-            source: "local",
-        }
+/// Matches a `[N]` tag, returning (full match length, 0-based index).
+fn parse_block_tag(text: &str) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    if bytes.first()? != &b'[' {
+        return None;
     }
-
-    pub fn api(provider_id: &'static str, model_id: &str) -> Self {
-        Self {
-            id: format!("{provider_id}:{model_id}"),
-            languages: supported_locales(),
-            source: provider_id,
-        }
+    let end = text[1..].find(']')?;
+    let num_str = &text[1..1 + end];
+    let id_1based: usize = num_str.parse().ok()?;
+    if id_1based == 0 {
+        return None;
     }
+    Some((1 + end + 1, id_1based - 1))
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -59,17 +47,19 @@ pub enum State {
     #[strum(serialize = "empty")]
     Empty,
     #[strum(serialize = "loading")]
-    Loading { model_id: String, source: String },
+    Loading { target: LlmTarget },
     #[strum(serialize = "ready")]
-    Ready(Llm),
+    ReadyLocal(Llm),
     #[strum(serialize = "ready")]
-    ApiReady {
-        provider: Box<dyn koharu_llm::providers::AnyProvider>,
-        provider_id: String,
-        model: String,
+    ReadyProvider {
+        target: LlmTarget,
+        provider: Box<dyn AnyProvider>,
     },
     #[strum(serialize = "failed")]
-    Failed(String),
+    Failed {
+        target: Option<LlmTarget>,
+        error: String,
+    },
 }
 
 pub struct Model {
@@ -85,16 +75,56 @@ pub trait Translatable {
     fn set_translation(&mut self, translation: String) -> anyhow::Result<()>;
 }
 
-fn escape_block_text(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+fn local_target(id: ModelId) -> LlmTarget {
+    LlmTarget {
+        kind: LlmTargetKind::Local,
+        model_id: id.to_string(),
+        provider_id: None,
+    }
 }
 
-fn unescape_block_text(text: &str) -> String {
-    text.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
+fn provider_target(provider_id: &str, model_id: &str) -> LlmTarget {
+    LlmTarget {
+        kind: LlmTargetKind::Provider,
+        model_id: model_id.to_string(),
+        provider_id: Some(provider_id.to_string()),
+    }
+}
+
+fn validate_target(target: &LlmTarget) -> anyhow::Result<()> {
+    match target.kind {
+        LlmTargetKind::Local => {
+            anyhow::ensure!(
+                target.provider_id.is_none(),
+                "local targets must not include provider_id"
+            );
+        }
+        LlmTargetKind::Provider => {
+            anyhow::ensure!(
+                target
+                    .provider_id
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "provider targets require provider_id"
+            );
+        }
+    }
+
+    anyhow::ensure!(
+        !target.model_id.trim().is_empty(),
+        "target model_id is required"
+    );
+    Ok(())
+}
+
+fn state_target(state: &State) -> Option<LlmTarget> {
+    match state {
+        State::Empty => None,
+        State::Loading { target } => Some(target.clone()),
+        State::ReadyLocal(llm) => Some(local_target(llm.id())),
+        State::ReadyProvider { target, .. } => Some(target.clone()),
+        State::Failed { target, .. } => target.clone(),
+    }
 }
 
 fn strip_wrapping_quotes(text: &str) -> String {
@@ -148,28 +178,62 @@ fn strip_incomplete_corner_quotes(text: &str) -> String {
     current.to_string()
 }
 
+/// Strip `<think>...</think>` reasoning blocks produced by thinking models.
+fn strip_thinking_block(text: &str) -> &str {
+    if let Some(start) = text.find("<think>")
+        && let Some(end) = text[start..].find("</think>")
+    {
+        return text[start + end + "</think>".len()..].trim_start();
+    }
+    text
+}
+
+fn has_meaningful_text(text: Option<&str>) -> bool {
+    text.is_some_and(|value| !value.trim().is_empty())
+}
+
 fn format_document_blocks(blocks: &[TextBlock]) -> String {
     blocks
         .iter()
         .enumerate()
         .map(|(idx, block)| {
-            let text = block.text.as_deref().unwrap_or("<empty>");
-            format!(
-                r#"<block id="{idx}">
-{}
-</block>"#,
-                escape_block_text(text)
-            )
+            let text = block.text.as_deref().unwrap_or("");
+            format!("[{}]{}", idx + 1, text)
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn find_next_tag(text: &str) -> Option<(usize, usize, usize)> {
+    let mut line_start = 0;
+
+    while line_start <= text.len() {
+        let line = &text[line_start..];
+        let indent = line
+            .as_bytes()
+            .iter()
+            .take_while(|&&byte| matches!(byte, b' ' | b'\t'))
+            .count();
+        let offset = line_start + indent;
+
+        if let Some((len, id)) = parse_block_tag(&text[offset..]) {
+            return Some((offset, len, id));
+        }
+
+        let Some(next_newline) = line.find('\n') else {
+            break;
+        };
+        line_start += next_newline + 1;
+    }
+
+    None
 }
 
 fn parse_tagged_blocks(
     translation: &str,
     expected_blocks: usize,
 ) -> anyhow::Result<Option<Vec<String>>> {
-    if find_next_block_start_tag(translation).is_none() {
+    if find_next_tag(translation).is_none() {
         return Ok(None);
     }
 
@@ -179,42 +243,29 @@ fn parse_tagged_blocks(
     let mut parsed_count = 0usize;
     let mut ignored_count = 0usize;
 
-    while let Some(start_tag) = find_next_block_start_tag(cursor) {
+    while let Some((offset, len, id)) = find_next_tag(cursor) {
         found_any = true;
-        cursor = &cursor[start_tag.offset + start_tag.len..];
+        cursor = &cursor[offset + len..];
 
-        let id = start_tag.id;
+        // Find content: everything until the next tag or end of string
+        let content_end = find_next_tag(cursor)
+            .map(|(next_offset, _, _)| next_offset)
+            .unwrap_or(cursor.len());
+        let content = cursor[..content_end].trim().to_string();
+
         if id >= expected_blocks {
             ignored_count += 1;
             tracing::warn!("Ignoring translated block id {id} for {expected_blocks} source blocks");
-            let closing_tag = find_next_block_end_tag(cursor);
-            let boundary = block_boundary(cursor, closing_tag.map(|tag| tag.offset));
-            cursor = if closing_tag.map(|tag| tag.offset) == Some(boundary) {
-                let closing_len = closing_tag.map(|tag| tag.len).unwrap_or(0);
-                &cursor[boundary + closing_len..]
+        } else {
+            if blocks[id].is_empty() {
+                parsed_count += 1;
             } else {
-                &cursor[boundary..]
-            };
-            continue;
+                tracing::warn!("Translated block id {id} appeared more than once, keeping latest");
+            }
+            blocks[id] = content;
         }
 
-        let closing_tag = find_next_block_end_tag(cursor);
-        let block_end = block_boundary(cursor, closing_tag.map(|tag| tag.offset));
-        let content = unescape_block_text(cursor[..block_end].trim());
-
-        if blocks[id].is_empty() {
-            parsed_count += 1;
-        } else {
-            tracing::warn!("Translated block id {id} appeared more than once, keeping latest");
-        }
-        blocks[id] = content;
-
-        cursor = if closing_tag.map(|tag| tag.offset) == Some(block_end) {
-            let closing_len = closing_tag.map(|tag| tag.len).unwrap_or(0);
-            &cursor[block_end + closing_len..]
-        } else {
-            &cursor[block_end..]
-        };
+        cursor = &cursor[content_end..];
     }
 
     if !found_any {
@@ -223,7 +274,11 @@ fn parse_tagged_blocks(
 
     if parsed_count != expected_blocks || ignored_count != 0 {
         tracing::warn!(
-            "Translated block count mismatch: expected {expected_blocks}, got {parsed_count}, ignored {ignored_count}"
+            expected_blocks,
+            parsed_count,
+            ignored_count,
+            output = translation,
+            "translated block count mismatch"
         );
     }
 
@@ -238,8 +293,10 @@ fn split_legacy_lines(translation: &str, expected_blocks: usize) -> anyhow::Resu
 
     if translations.len() != expected_blocks {
         tracing::warn!(
-            "Translated line count mismatch: expected {expected_blocks}, got {}",
-            translations.len()
+            expected_blocks,
+            got = translations.len(),
+            output = translation,
+            "translated line count mismatch"
         );
     }
 
@@ -251,160 +308,23 @@ fn split_legacy_lines(translation: &str, expected_blocks: usize) -> anyhow::Resu
     Ok(translations)
 }
 
-fn block_boundary(cursor: &str, closing_tag: Option<usize>) -> usize {
-    let next_block_start = find_next_block_start_tag(cursor).map(|tag| tag.offset);
-    match (closing_tag, next_block_start) {
-        (Some(close), Some(next)) => close.min(next),
-        (Some(close), None) => close,
-        (None, Some(next)) => next,
-        (None, None) => cursor.len(),
-    }
-}
-
-fn find_next_block_start_tag(text: &str) -> Option<BlockStartTag> {
-    let mut search_from = 0usize;
-    while let Some(rel_start) = text[search_from..].find('<') {
-        let offset = search_from + rel_start;
-        if let Some((len, id)) = parse_block_start_tag(&text[offset..]) {
-            return Some(BlockStartTag { offset, len, id });
-        }
-        search_from = offset + 1;
-    }
-    None
-}
-
-fn parse_block_start_tag(text: &str) -> Option<(usize, usize)> {
-    let bytes = text.as_bytes();
-    if bytes.first().copied()? != b'<' {
-        return None;
-    }
-
-    let mut index = 1usize;
-    skip_ascii_whitespace(bytes, &mut index);
-    if !consume_ascii_keyword(bytes, &mut index, "block") {
-        return None;
-    }
-
-    let mut parsed_id = None;
-    loop {
-        skip_ascii_whitespace(bytes, &mut index);
-        match bytes.get(index).copied()? {
-            b'>' => return parsed_id.map(|id| (index + 1, id)),
-            b'/' if bytes.get(index + 1).copied() == Some(b'>') => {
-                return parsed_id.map(|id| (index + 2, id));
-            }
-            _ => {}
-        }
-
-        let name_start = index;
-        while matches!(
-            bytes.get(index).copied(),
-            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-')
-        ) {
-            index += 1;
-        }
-        if index == name_start {
-            return None;
-        }
-        let attr_name = &text[name_start..index];
-
-        skip_ascii_whitespace(bytes, &mut index);
-        if bytes.get(index).copied()? != b'=' {
-            return None;
-        }
-        index += 1;
-        skip_ascii_whitespace(bytes, &mut index);
-
-        let attr_value = match bytes.get(index).copied()? {
-            b'"' | b'\'' => {
-                let quote = bytes[index];
-                index += 1;
-                let value_start = index;
-                while bytes.get(index).copied()? != quote {
-                    index += 1;
-                }
-                let value = &text[value_start..index];
-                index += 1;
-                value
-            }
-            _ => {
-                let value_start = index;
-                while matches!(bytes.get(index).copied(), Some(byte) if !byte.is_ascii_whitespace() && byte != b'>')
-                {
-                    index += 1;
-                }
-                &text[value_start..index]
-            }
-        };
-
-        if attr_name.eq_ignore_ascii_case("id") {
-            parsed_id = attr_value.parse::<usize>().ok();
-        }
-    }
-}
-
-fn find_next_block_end_tag(text: &str) -> Option<BlockEndTag> {
-    let mut search_from = 0usize;
-    while let Some(rel_start) = text[search_from..].find('<') {
-        let offset = search_from + rel_start;
-        if let Some(len) = parse_block_end_tag(&text[offset..]) {
-            return Some(BlockEndTag { offset, len });
-        }
-        search_from = offset + 1;
-    }
-    None
-}
-
-fn parse_block_end_tag(text: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    if bytes.first().copied()? != b'<' {
-        return None;
-    }
-
-    let mut index = 1usize;
-    skip_ascii_whitespace(bytes, &mut index);
-    if bytes.get(index).copied()? != b'/' {
-        return None;
-    }
-    index += 1;
-    skip_ascii_whitespace(bytes, &mut index);
-    if !consume_ascii_keyword(bytes, &mut index, "block") {
-        return None;
-    }
-    skip_ascii_whitespace(bytes, &mut index);
-    if bytes.get(index).copied()? != b'>' {
-        return None;
-    }
-    Some(index + 1)
-}
-
-fn skip_ascii_whitespace(bytes: &[u8], index: &mut usize) {
-    while matches!(bytes.get(*index).copied(), Some(byte) if byte.is_ascii_whitespace()) {
-        *index += 1;
-    }
-}
-
-fn consume_ascii_keyword(bytes: &[u8], index: &mut usize, keyword: &str) -> bool {
-    let end = *index + keyword.len();
-    let Some(slice) = bytes.get(*index..end) else {
-        return false;
-    };
-    if !slice.eq_ignore_ascii_case(keyword.as_bytes()) {
-        return false;
-    }
-    *index = end;
-    true
-}
-
 impl Translatable for Document {
     fn get_source(&self) -> anyhow::Result<String> {
+        if !self
+            .text_blocks
+            .iter()
+            .any(|block| has_meaningful_text(block.text.as_deref()))
+        {
+            return Ok(String::new());
+        }
         Ok(format_document_blocks(&self.text_blocks))
     }
 
     fn set_translation(&mut self, translation: String) -> anyhow::Result<()> {
-        let translations = match parse_tagged_blocks(&translation, self.text_blocks.len())? {
+        let translation = strip_thinking_block(&translation);
+        let translations = match parse_tagged_blocks(translation, self.text_blocks.len())? {
             Some(blocks) => blocks,
-            None => split_legacy_lines(&translation, self.text_blocks.len())?,
+            None => split_legacy_lines(translation, self.text_blocks.len())?,
         };
 
         for (block, translation) in self.text_blocks.iter_mut().zip(translations) {
@@ -420,18 +340,14 @@ impl Translatable for TextBlock {
             .text
             .clone()
             .ok_or_else(|| anyhow::anyhow!("No source text found"))?;
-        Ok(format!(
-            r#"<block id="0">
-{}
-</block>"#,
-            escape_block_text(&source)
-        ))
+        Ok(format!("[1]{}", source))
     }
 
     fn set_translation(&mut self, translation: String) -> anyhow::Result<()> {
-        let translation = match parse_tagged_blocks(&translation, 1)? {
+        let translation = strip_thinking_block(&translation);
+        let translation = match parse_tagged_blocks(translation, 1)? {
             Some(blocks) => blocks.into_iter().next().unwrap_or_default(),
-            None => translation,
+            None => translation.to_string(),
         };
         self.translation = Some(strip_wrapping_quotes(&translation));
         Ok(())
@@ -453,28 +369,26 @@ impl Model {
         self.cpu
     }
 
-    pub async fn load_api(
+    pub fn backend(&self) -> Arc<LlamaBackend> {
+        self.backend.clone()
+    }
+
+    pub async fn load_provider(
         &self,
-        provider_id: &str,
-        model_id: &str,
-        config: koharu_llm::providers::ProviderConfig,
+        target: LlmTarget,
+        provider: Box<dyn AnyProvider>,
     ) -> anyhow::Result<()> {
-        let provider = koharu_llm::providers::build_provider(provider_id, config)?;
-        *self.state.write().await = State::ApiReady {
-            provider,
-            provider_id: provider_id.to_string(),
-            model: model_id.to_string(),
-        };
+        *self.state.write().await = State::ReadyProvider { target, provider };
         self.emit_state().await;
         Ok(())
     }
 
-    pub async fn load(&self, id: ModelId) {
+    pub async fn load_local(&self, id: ModelId) {
+        let target = local_target(id);
         {
             let mut guard = self.state.write().await;
             *guard = State::Loading {
-                model_id: id.to_string(),
-                source: "local".to_string(),
+                target: target.clone(),
             };
         }
         self.emit_state().await;
@@ -489,12 +403,15 @@ impl Model {
             match res {
                 Ok(llm) => {
                     let mut guard = state_cloned.write().await;
-                    *guard = State::Ready(llm);
+                    *guard = State::ReadyLocal(llm);
                 }
                 Err(e) => {
                     tracing::error!("LLM load join error: {e}");
                     let mut guard = state_cloned.write().await;
-                    *guard = State::Failed(format!("join error: {e}"));
+                    *guard = State::Failed {
+                        target: Some(target),
+                        error: format!("join error: {e}"),
+                    };
                 }
             }
             let snapshot = {
@@ -521,8 +438,13 @@ impl Model {
     pub async fn ready(&self) -> bool {
         matches!(
             *self.state.read().await,
-            State::Ready(_) | State::ApiReady { .. }
+            State::ReadyLocal(_) | State::ReadyProvider { .. }
         )
+    }
+
+    pub async fn current_target(&self) -> Option<LlmTarget> {
+        let guard = self.state.read().await;
+        state_target(&guard)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<LlmState> {
@@ -542,6 +464,7 @@ impl Model {
         &self,
         doc: &mut impl Translatable,
         target_language: Option<&str>,
+        custom_system_prompt: Option<&str>,
     ) -> anyhow::Result<()> {
         let target_language = target_language
             .and_then(Language::parse)
@@ -553,17 +476,22 @@ impl Model {
         }
         let mut guard = self.state.write().await;
         let translation = match &mut *guard {
-            State::Ready(llm) => {
-                llm.generate(&source, &GenerateOptions::default(), target_language)
+            State::ReadyLocal(llm) => {
+                let opts = llm.id().default_generate_options();
+                llm.generate(&source, &opts, target_language, custom_system_prompt)
             }
-            State::ApiReady {
-                provider, model, ..
-            } => {
-                let model = model.clone();
-                provider.translate(&source, target_language, &model).await
+            State::ReadyProvider { target, provider } => {
+                provider
+                    .translate(
+                        &source,
+                        target_language,
+                        &target.model_id,
+                        custom_system_prompt,
+                    )
+                    .await
             }
             State::Loading { .. } => Err(anyhow::anyhow!("Model is still loading")),
-            State::Failed(e) => Err(anyhow::anyhow!("Model failed to load: {e}")),
+            State::Failed { error, .. } => Err(anyhow::anyhow!("Model failed to load: {error}")),
             State::Empty => Err(anyhow::anyhow!("No model is loaded")),
         }?;
         doc.set_translation(translation.trim().to_string())
@@ -574,37 +502,265 @@ fn snapshot_from_state(state: &State) -> LlmState {
     match state {
         State::Empty => LlmState {
             status: LlmStateStatus::Empty,
-            model_id: None,
-            source: None,
+            target: None,
             error: None,
         },
-        State::Loading { model_id, source } => LlmState {
+        State::Loading { target } => LlmState {
             status: LlmStateStatus::Loading,
-            model_id: Some(model_id.clone()),
-            source: Some(source.clone()),
+            target: Some(target.clone()),
             error: None,
         },
-        State::Ready(llm) => LlmState {
+        State::ReadyLocal(llm) => LlmState {
             status: LlmStateStatus::Ready,
-            model_id: Some(llm.id().to_string()),
-            source: Some("local".to_string()),
+            target: Some(local_target(llm.id())),
             error: None,
         },
-        State::ApiReady {
-            provider_id, model, ..
-        } => LlmState {
+        State::ReadyProvider { target, .. } => LlmState {
             status: LlmStateStatus::Ready,
-            model_id: Some(format!("{provider_id}:{model}")),
-            source: Some(provider_id.clone()),
+            target: Some(target.clone()),
             error: None,
         },
-        State::Failed(error) => LlmState {
+        State::Failed { target, error } => LlmState {
             status: LlmStateStatus::Failed,
-            model_id: None,
-            source: None,
+            target: target.clone(),
             error: Some(error.clone()),
         },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Operations (merged from ops/llm.rs)
+// ---------------------------------------------------------------------------
+
+fn local_catalog_models() -> Vec<LlmCatalogModel> {
+    ModelId::iter()
+        .map(|model| LlmCatalogModel {
+            target: local_target(model),
+            name: model.to_string(),
+            languages: language_tags(&model.languages()),
+        })
+        .collect()
+}
+
+async fn provider_catalog(state: &AppResources) -> anyhow::Result<Vec<LlmProviderCatalog>> {
+    let config = app_config::load()?;
+    let mut providers = Vec::new();
+
+    for descriptor in all_provider_descriptors() {
+        let stored = config.providers.iter().find(|p| p.id == descriptor.id);
+        let base_url = stored.and_then(|p| p.base_url.clone());
+        let api_key = stored
+            .and_then(|p| p.api_key.as_ref())
+            .map(|secret| secret.expose().to_owned());
+        let has_api_key = api_key
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let missing_required_config = (descriptor.requires_api_key && !has_api_key)
+            || (descriptor.requires_base_url
+                && base_url
+                    .as_deref()
+                    .is_none_or(|value| value.trim().is_empty()));
+
+        let (status, error, models) = if missing_required_config {
+            (
+                LlmProviderCatalogStatus::MissingConfiguration,
+                None,
+                static_provider_models(descriptor),
+            )
+        } else {
+            match &descriptor.models {
+                ProviderCatalogModels::Static(_) => (
+                    LlmProviderCatalogStatus::Ready,
+                    None,
+                    static_provider_models(descriptor),
+                ),
+                ProviderCatalogModels::Dynamic(_) => {
+                    let models = discover_models(
+                        descriptor.id,
+                        ProviderConfig {
+                            http_client: state.runtime.http_client(),
+                            api_key,
+                            base_url: base_url.clone(),
+                            temperature: None,
+                            max_tokens: None,
+                        },
+                    )?
+                    .await;
+
+                    match models {
+                        Ok(models) => (
+                            LlmProviderCatalogStatus::Ready,
+                            None,
+                            models
+                                .into_iter()
+                                .map(|model| LlmCatalogModel {
+                                    target: provider_target(descriptor.id, &model.id),
+                                    name: model.name,
+                                    languages: supported_locales(),
+                                })
+                                .collect(),
+                        ),
+                        Err(error) => (
+                            LlmProviderCatalogStatus::DiscoveryFailed,
+                            Some(error.to_string()),
+                            Vec::new(),
+                        ),
+                    }
+                }
+            }
+        };
+
+        providers.push(LlmProviderCatalog {
+            id: descriptor.id.to_string(),
+            name: descriptor.name.to_string(),
+            requires_api_key: descriptor.requires_api_key,
+            requires_base_url: descriptor.requires_base_url,
+            has_api_key,
+            base_url,
+            status,
+            error,
+            models,
+        });
+    }
+
+    Ok(providers)
+}
+
+fn static_provider_models(
+    descriptor: &koharu_llm::providers::ProviderDescriptor,
+) -> Vec<LlmCatalogModel> {
+    match &descriptor.models {
+        ProviderCatalogModels::Static(models) => models
+            .iter()
+            .map(|model| LlmCatalogModel {
+                target: provider_target(descriptor.id, model.id),
+                name: model.name.to_string(),
+                languages: supported_locales(),
+            })
+            .collect(),
+        ProviderCatalogModels::Dynamic(_) => Vec::new(),
+    }
+}
+
+fn provider_config_from_settings(
+    state: &AppResources,
+    target: &LlmTarget,
+    options: Option<&LlmGenerationOptions>,
+) -> anyhow::Result<ProviderConfig> {
+    validate_target(target)?;
+    let provider_id = target
+        .provider_id
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("provider targets require provider_id"))?;
+    let config = app_config::load()?;
+    let stored = config.providers.iter().find(|p| p.id == provider_id);
+
+    Ok(ProviderConfig {
+        http_client: state.runtime.http_client(),
+        api_key: stored
+            .and_then(|p| p.api_key.as_ref())
+            .map(|secret| secret.expose().to_owned()),
+        base_url: stored.and_then(|p| p.base_url.clone()),
+        temperature: options.and_then(|options| options.temperature),
+        max_tokens: options.and_then(|options| options.max_tokens),
+    })
+}
+
+async fn load_target(
+    state: &AppResources,
+    target: &LlmTarget,
+    options: Option<&LlmGenerationOptions>,
+) -> anyhow::Result<()> {
+    validate_target(target)?;
+    if state.llm.current_target().await.as_ref() == Some(target) && state.llm.ready().await {
+        return Ok(());
+    }
+
+    match target.kind {
+        LlmTargetKind::Local => {
+            let model = ModelId::from_str(&target.model_id)?;
+            state.llm.load_local(model).await;
+        }
+        LlmTargetKind::Provider => {
+            let provider_id = target
+                .provider_id
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("provider targets require provider_id"))?;
+            let provider = build_provider(
+                provider_id,
+                provider_config_from_settings(state, target, options)?,
+            )?;
+            state.llm.load_provider(target.clone(), provider).await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn llm_catalog(state: AppResources) -> anyhow::Result<LlmCatalog> {
+    Ok(LlmCatalog {
+        local_models: local_catalog_models(),
+        providers: provider_catalog(&state).await?,
+    })
+}
+
+#[instrument(level = "info", skip_all)]
+pub async fn llm_load(state: AppResources, payload: LlmLoadRequest) -> anyhow::Result<()> {
+    load_target(&state, &payload.target, payload.options.as_ref()).await
+}
+
+pub async fn llm_offload(state: AppResources) -> anyhow::Result<()> {
+    state.llm.offload().await;
+    Ok(())
+}
+
+pub async fn llm_ready(state: AppResources) -> anyhow::Result<bool> {
+    Ok(state.llm.ready().await)
+}
+
+#[instrument(level = "info", skip_all)]
+pub async fn llm_generate(
+    state: AppResources,
+    document_id: &str,
+    text_block_index: Option<usize>,
+    language: Option<&str>,
+    system_prompt: Option<&str>,
+) -> anyhow::Result<()> {
+    let mut doc = state.storage.page(document_id).await?;
+
+    match text_block_index {
+        Some(block_index) => {
+            let text_block = doc
+                .text_blocks
+                .get_mut(block_index)
+                .ok_or_else(|| anyhow::anyhow!("Text block not found"))?;
+            state
+                .llm
+                .translate(text_block, language, system_prompt)
+                .await?;
+        }
+        None => {
+            state
+                .llm
+                .translate(&mut doc, language, system_prompt)
+                .await?;
+        }
+    }
+
+    let text_blocks = doc.text_blocks;
+    state
+        .storage
+        .update_page(document_id, |page| {
+            page.text_blocks = text_blocks;
+        })
+        .await
+}
+
+pub async fn get_document_for_llm(
+    state: AppResources,
+    document_id: &str,
+) -> anyhow::Result<koharu_core::Document> {
+    state.storage.page(document_id).await
 }
 
 #[cfg(test)]
@@ -630,10 +786,7 @@ mod tests {
         };
 
         let source = doc.get_source()?;
-        assert_eq!(
-            source,
-            "<block id=\"0\">\nHello\n</block>\n<block id=\"1\">\n1 &lt; 2\nA &amp; B\n</block>"
-        );
+        assert_eq!(source, "[1]Hello\n[2]1 < 2\nA & B");
 
         Ok(())
     }
@@ -645,9 +798,7 @@ mod tests {
             ..Default::default()
         };
 
-        doc.set_translation(
-            "<block id=\"1\">\nSecond line\nnext\n</block>\n<block id=\"0\">\nFirst &lt;done&gt;\n</block>".to_string(),
-        )?;
+        doc.set_translation("[2]Second line\nnext\n[1]First <done>".to_string())?;
 
         assert_eq!(
             doc.text_blocks[0].translation.as_deref(),
@@ -668,10 +819,7 @@ mod tests {
             ..Default::default()
         };
 
-        doc.set_translation(
-            "<block id=\"0\">\n\"Hello\"\n</block>\n<block id=\"1\">\n“World”\n</block>"
-                .to_string(),
-        )?;
+        doc.set_translation("[1]\"Hello\"\n[2]\u{201c}World\u{201d}".to_string())?;
 
         assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("Hello"));
         assert_eq!(doc.text_blocks[1].translation.as_deref(), Some("World"));
@@ -698,15 +846,13 @@ mod tests {
     }
 
     #[test]
-    fn document_translation_allows_missing_closing_tags() -> anyhow::Result<()> {
+    fn document_translation_parses_consecutive_tags() -> anyhow::Result<()> {
         let mut doc = Document {
             text_blocks: vec![TextBlock::default(), TextBlock::default()],
             ..Default::default()
         };
 
-        doc.set_translation(
-            "<block id=\"0\">\nFirst line\n<block id=\"1\">\nSecond line".to_string(),
-        )?;
+        doc.set_translation("[1]First line\n[2]Second line".to_string())?;
 
         assert_eq!(
             doc.text_blocks[0].translation.as_deref(),
@@ -721,14 +867,13 @@ mod tests {
     }
 
     #[test]
-    fn document_translation_uses_end_of_text_when_last_closing_tag_is_missing() -> anyhow::Result<()>
-    {
+    fn document_translation_uses_end_of_text_for_last_block() -> anyhow::Result<()> {
         let mut doc = Document {
             text_blocks: vec![TextBlock::default()],
             ..Default::default()
         };
 
-        doc.set_translation("<block id=\"0\">\nFinal line".to_string())?;
+        doc.set_translation("[1]Final line".to_string())?;
 
         assert_eq!(
             doc.text_blocks[0].translation.as_deref(),
@@ -745,45 +890,9 @@ mod tests {
             ..Default::default()
         };
 
-        doc.set_translation(
-            "<block id=\"0\">\nKept\n</block>\n<block id=\"1\">\nIgnored\n</block>".to_string(),
-        )?;
+        doc.set_translation("[1]Kept\n[2]Ignored".to_string())?;
 
         assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("Kept"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn document_translation_accepts_relaxed_block_tag_formatting() -> anyhow::Result<()> {
-        let mut doc = Document {
-            text_blocks: vec![TextBlock::default(), TextBlock::default()],
-            ..Default::default()
-        };
-
-        doc.set_translation(
-            "<block id = '1' >\nSecond\n</ block>\n<Block id=0>\nFirst\n</BLOCK>".to_string(),
-        )?;
-
-        assert_eq!(doc.text_blocks[0].translation.as_deref(), Some("First"));
-        assert_eq!(doc.text_blocks[1].translation.as_deref(), Some("Second"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn document_translation_accepts_unquoted_block_ids() -> anyhow::Result<()> {
-        let mut doc = Document {
-            text_blocks: vec![TextBlock::default()],
-            ..Default::default()
-        };
-
-        doc.set_translation("<block id=0>\nOnly first\n</block>".to_string())?;
-
-        assert_eq!(
-            doc.text_blocks[0].translation.as_deref(),
-            Some("Only first")
-        );
 
         Ok(())
     }
@@ -795,7 +904,7 @@ mod tests {
             ..Default::default()
         };
 
-        doc.set_translation("<block id=\"0\">\nOnly first\n</block>".to_string())?;
+        doc.set_translation("[1]Only first".to_string())?;
 
         assert_eq!(
             doc.text_blocks[0].translation.as_deref(),
@@ -809,7 +918,7 @@ mod tests {
     #[test]
     fn text_block_translation_strips_wrapping_quotes() -> anyhow::Result<()> {
         let mut block = TextBlock::default();
-        block.set_translation("“quoted”".to_string())?;
+        block.set_translation("\u{201c}quoted\u{201d}".to_string())?;
         assert_eq!(block.translation.as_deref(), Some("quoted"));
         Ok(())
     }
@@ -822,18 +931,33 @@ mod tests {
         };
 
         let source = block.get_source()?;
-        assert_eq!(source, "<block id=\"0\">\n1 &lt; 2\nA &amp; B\n</block>");
+        assert_eq!(source, "[1]1 < 2\nA & B");
 
+        Ok(())
+    }
+
+    #[test]
+    fn document_source_skips_translation_when_all_blocks_are_empty() -> anyhow::Result<()> {
+        let doc = Document {
+            text_blocks: vec![
+                TextBlock::default(),
+                TextBlock {
+                    text: Some("   ".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(doc.get_source()?, "");
         Ok(())
     }
 
     #[test]
     fn text_block_translation_extracts_tagged_block_content() -> anyhow::Result<()> {
         let mut block = TextBlock::default();
-        block.set_translation(
-            "Sure.\n<block id=\"0\">\nTranslated &lt;line&gt;\n</block>\nDone.".to_string(),
-        )?;
-        assert_eq!(block.translation.as_deref(), Some("Translated <line>"));
+        block.set_translation("Sure.\n[1]Translated text".to_string())?;
+        assert_eq!(block.translation.as_deref(), Some("Translated text"));
         Ok(())
     }
 
@@ -851,8 +975,53 @@ mod tests {
     #[test]
     fn text_block_translation_keeps_japanese_dialogue_quotes() -> anyhow::Result<()> {
         let mut block = TextBlock::default();
-        block.set_translation("「quoted」".to_string())?;
-        assert_eq!(block.translation.as_deref(), Some("「quoted」"));
+        block.set_translation("\u{300c}quoted\u{300d}".to_string())?;
+        assert_eq!(block.translation.as_deref(), Some("\u{300c}quoted\u{300d}"));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_block_tag_parses_valid_tags() {
+        assert_eq!(parse_block_tag("[1]"), Some((3, 0)));
+        assert_eq!(parse_block_tag("[2]"), Some((3, 1)));
+        assert_eq!(parse_block_tag("[10]"), Some((4, 9)));
+    }
+
+    #[test]
+    fn parse_block_tag_rejects_invalid_tags() {
+        assert_eq!(parse_block_tag("[0]"), None);
+        assert_eq!(parse_block_tag("[abc]"), None);
+        assert_eq!(parse_block_tag("<block>"), None);
+        assert_eq!(parse_block_tag("hello"), None);
+    }
+
+    #[test]
+    fn strip_thinking_block_removes_think_tags() {
+        assert_eq!(
+            strip_thinking_block("<think>reasoning here</think>[1]Hello"),
+            "[1]Hello"
+        );
+        assert_eq!(strip_thinking_block("no thinking here"), "no thinking here");
+        assert_eq!(
+            strip_thinking_block("<think>long\nmultiline\nthought</think>\n[1]Result"),
+            "[1]Result"
+        );
+    }
+
+    #[test]
+    fn parse_tagged_blocks_ignores_inline_analysis_tags() -> anyhow::Result<()> {
+        let parsed =
+            parse_tagged_blocks("1. Analyze the Input Data:\n* [1] `1`\n* [2] `ねむ……`", 2)?;
+        assert_eq!(parsed, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_tagged_blocks_accepts_real_tagged_lines_after_preamble() -> anyhow::Result<()> {
+        let parsed = parse_tagged_blocks("Sure.\n[1]Hello\n[2]World", 2)?;
+        assert_eq!(parsed, Some(vec!["Hello".to_string(), "World".to_string()]));
+
         Ok(())
     }
 }

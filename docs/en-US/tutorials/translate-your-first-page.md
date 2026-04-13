@@ -4,7 +4,7 @@ title: Translate Your First Page
 
 # Translate Your First Page
 
-This tutorial walks through the normal Koharu workflow for a single manga page: import, detect, recognize, translate, review, and export.
+This tutorial walks through the standard Koharu workflow for a single manga page: import, detect, recognize, translate, review, and export.
 
 ## Before you begin
 
@@ -80,6 +80,7 @@ Koharu helps with text layout and vertical CJK rendering, but the final page sti
 - tone and character voice
 - line breaks and bubble fit
 - font choice and stroke readability
+  Koharu's default stroke choice now auto-picks a black or white outline for contrast, but you can still override it manually when the page needs something else.
 - blocks whose source OCR looked uncertain
 
 If a translation reads correctly but still looks cramped, adjust the text block or styling before exporting.
@@ -107,7 +108,7 @@ The usual fixes are:
 - switch to a stronger translation model
 - export PSD and finish the page with manual lettering cleanup
 
-Koharu works best when you treat the pipeline as a fast first pass, then use manual review where the page needs it.
+Koharu works best when you treat the pipeline as a fast first pass and then apply manual review where the page needs it.
 
 ## Next steps
 

@@ -1,6 +1,9 @@
 {
   "common": {
-    "initializing": "Initializing..."
+    "initializing": "Initializing...",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save"
   },
   "menu": {
     "file": "File",
@@ -57,7 +60,11 @@
     "pages_one": "{{count}} page",
     "pages_other": "{{count}} pages",
     "empty": "No documents",
-    "prompt": "Select or import a page to begin"
+    "prompt": "Select or import a page to begin",
+    "pageManager": {
+      "title": "Page Manager",
+      "description": "Drag and drop pages to reorder them."
+    }
   },
   "panels": {
     "processing": "Processing",
@@ -297,6 +304,63 @@
     "localLlmTesting": "Testing...",
     "localLlmTestSuccess": "Connected. Found {{count}} model(s). Latency: {{latency}}ms",
     "localLlmTestFailed": "Connection failed: {{error}}",
-    "localLlmAdvanced": "Advanced"
+    "localLlmAdvanced": "Advanced",
+    "appConfig": "App Config",
+    "runtime": "Runtime",
+    "renderingFont": "Rendering Font",
+    "renderingFontDescription": "Font used when rendering translated text onto images.",
+    "providersDescription": "Configure API keys and endpoints for LLM providers.",
+    "loadingProviders": "Loading providers...",
+    "apiKey": "API Key",
+    "apiKeyPlaceholderStored": "Key stored. Enter new to replace.",
+    "apiKeyPlaceholderEmpty": "Enter API key",
+    "apiKeyStoredInKeychain": "Stored in keychain",
+    "apiKeyClear": "Clear",
+    "apiKeySave": "Save",
+    "apiKeySaved": "Saved!",
+    "dataPath": "Data Path",
+    "dataPathDescription": "Koharu stores models, runtime packages, page manifests, and image blobs under this directory. Changing the path requires an app restart.",
+    "dataPathApply": "Apply & Restart",
+    "dataPathApplying": "Applying...",
+    "dataPathDesktopOnly": "Runtime settings are only available in the desktop app.",
+    "runtimeDescription": "Data path and HTTP settings used for downloads and provider requests. Changes require an app restart.",
+    "httpConnectTimeout": "HTTP Connect Timeout (s)",
+    "httpConnectTimeoutDescription": "Maximum time to establish an HTTP connection before failing.",
+    "httpReadTimeout": "HTTP Read Timeout (s)",
+    "httpReadTimeoutDescription": "Maximum time to wait for HTTP response reads before failing.",
+    "httpMaxRetries": "HTTP Max Retries",
+    "httpMaxRetriesDescription": "Number of automatic retries for transient HTTP failures.",
+    "restartApply": "Apply & Restart",
+    "restartApplying": "Applying...",
+    "restartRequiredDescription": "These settings are loaded at startup. Applying them will save the config and restart the app.",
+    "engines": "Engines",
+    "enginesDescription": "Select which ML engine to use for each pipeline stage.",
+    "detector": "Detector",
+    "bubbleDetector": "Bubble Detector",
+    "fontDetector": "Font Detector",
+    "segmenter": "Segmenter",
+    "ocr": "OCR",
+    "translator": "Translator",
+    "inpainter": "Inpainter",
+    "renderer": "Renderer"
+  },
+  "updater": {
+    "available": {
+      "title": "Update available",
+      "description": "Koharu <strong>{{version}}</strong> is ready to install"
+    },
+    "noNotes": "No release notes provided.",
+    "later": "Later",
+    "update": "Update",
+    "downloading": {
+      "title": "Downloading update…",
+      "subtitle": "Koharu {{version}}"
+    },
+    "error": {
+      "title": "Update failed",
+      "description": "Something went wrong while updating"
+    },
+    "close": "Close",
+    "retry": "Retry"
   }
 }

@@ -1,4 +1,4 @@
-pub mod api;
+mod jinja;
 pub mod language;
 mod model;
 pub mod paddleocr_vl;
@@ -15,6 +15,25 @@ use strum::{EnumProperty, IntoEnumIterator};
 pub use language::{Language, language_from_tag, supported_locales};
 pub use model::{GenerateOptions, Llm};
 pub use prompt::{ChatMessage, ChatRole};
+
+/// Suppress all llama.cpp / ggml / mtmd / clip native log output.
+/// Must be called after `LlamaBackend::init()`.
+pub fn suppress_native_logs() {
+    unsafe extern "C" fn void_log(
+        _: sys::ggml_log_level,
+        _: *const std::os::raw::c_char,
+        _: *mut std::os::raw::c_void,
+    ) {
+    }
+    unsafe {
+        // Suppress llama.cpp + ggml logs
+        sys::llama_log_set(Some(void_log), std::ptr::null_mut());
+        // Suppress mtmd / clip logs (separate logger)
+        sys::mtmd_log_set(Some(void_log), std::ptr::null_mut());
+        // Suppress mtmd-helper logs (yet another separate logger)
+        sys::mtmd_helper_log_set(Some(void_log), std::ptr::null_mut());
+    }
+}
 
 #[derive(
     Debug,
@@ -38,14 +57,14 @@ pub enum ModelId {
     )]
     VntlLlama3_8Bv2,
     #[strum(
-        serialize = "lfm2-350m-enjp-mt",
+        serialize = "lfm2.5-1.2b-instruct",
         props(
-            repo = "LiquidAI/LFM2-350M-ENJP-MT-GGUF",
-            filename = "LFM2-350M-ENJP-MT-Q8_0.gguf",
-            languages = "en-US"
+            repo = "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+            filename = "LFM2.5-1.2B-Instruct-Q8_0.gguf",
+            languages = "en-US,ar-SA,zh-CN,fr-FR,de-DE,ja-JP,ko-KR,pt-PT,es-ES"
         )
     )]
-    Lfm2_350mEnjpMt,
+    Lfm2_5_1_2bInstruct,
     #[strum(
         serialize = "sakura-galtransl-7b-v3.7",
         props(
@@ -73,6 +92,177 @@ pub enum ModelId {
         )
     )]
     HunyuanMT7B,
+    #[strum(
+        serialize = "sugoi-14b-ultra",
+        props(
+            repo = "sugoitoolkit/Sugoi-14B-Ultra-GGUF",
+            filename = "Sugoi-14B-Ultra-Q8_0.gguf",
+            languages = "en-US"
+        )
+    )]
+    Sugoi14bUltra,
+    #[strum(
+        serialize = "sugoi-32b-ultra",
+        props(
+            repo = "sugoitoolkit/Sugoi-32B-Ultra-GGUF",
+            filename = "Sugoi-32B-Ultra-Q4_K_M.gguf",
+            languages = "en-US"
+        )
+    )]
+    Sugoi32bUltra,
+    #[strum(
+        serialize = "gemma4-e2b-it",
+        props(
+            repo = "unsloth/gemma-4-E2B-it-GGUF",
+            filename = "gemma-4-e2b-it-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4E2bIt,
+    #[strum(
+        serialize = "gemma4-e4b-it",
+        props(
+            repo = "unsloth/gemma-4-E4B-it-GGUF",
+            filename = "gemma-4-e4b-it-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4E4bIt,
+    #[strum(
+        serialize = "gemma4-26b-a4b-it",
+        props(
+            repo = "unsloth/gemma-4-26B-A4B-it-GGUF",
+            filename = "gemma-4-26B-A4B-it-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4_26bA4bIt,
+    #[strum(
+        serialize = "gemma4-31b-it",
+        props(
+            repo = "unsloth/gemma-4-31B-it-GGUF",
+            filename = "gemma-4-31B-it-Q4_K_M.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4_31bIt,
+    #[strum(
+        serialize = "gemma4-e2b-uncensored",
+        props(
+            repo = "HauhauCS/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive",
+            filename = "Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4E2bUncensored,
+    #[strum(
+        serialize = "gemma4-e4b-uncensored",
+        props(
+            repo = "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+            filename = "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+            languages = "*"
+        )
+    )]
+    Gemma4E4bUncensored,
+    #[strum(
+        serialize = "qwen3.5-0.8b",
+        props(
+            repo = "unsloth/Qwen3.5-0.8B-GGUF",
+            filename = "Qwen3.5-0.8B-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_0_8b,
+    #[strum(
+        serialize = "qwen3.5-2b",
+        props(
+            repo = "unsloth/Qwen3.5-2B-GGUF",
+            filename = "Qwen3.5-2B-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_2b,
+    #[strum(
+        serialize = "qwen3.5-4b",
+        props(
+            repo = "unsloth/Qwen3.5-4B-GGUF",
+            filename = "Qwen3.5-4B-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_4b,
+    #[strum(
+        serialize = "qwen3.5-9b",
+        props(
+            repo = "unsloth/Qwen3.5-9B-GGUF",
+            filename = "Qwen3.5-9B-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_9b,
+    #[strum(
+        serialize = "qwen3.5-27b",
+        props(
+            repo = "unsloth/Qwen3.5-27B-GGUF",
+            filename = "Qwen3.5-27B-Q4_K_M.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_27b,
+    #[strum(
+        serialize = "qwen3.5-35b-a3b",
+        props(
+            repo = "unsloth/Qwen3.5-35B-A3B-GGUF",
+            filename = "Qwen3.5-35B-A3B-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_35bA3b,
+    #[strum(
+        serialize = "qwen3.5-2b-uncensored",
+        props(
+            repo = "HauhauCS/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive",
+            filename = "Qwen3.5-2B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_2bUncensored,
+    #[strum(
+        serialize = "qwen3.5-4b-uncensored",
+        props(
+            repo = "HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive",
+            filename = "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_4bUncensored,
+    #[strum(
+        serialize = "qwen3.5-9b-uncensored",
+        props(
+            repo = "HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+            filename = "Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_9bUncensored,
+    #[strum(
+        serialize = "qwen3.5-27b-uncensored",
+        props(
+            repo = "HauhauCS/Qwen3.5-27B-Uncensored-HauhauCS-Aggressive",
+            filename = "Qwen3.5-27B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_27bUncensored,
+    #[strum(
+        serialize = "qwen3.5-35b-a3b-uncensored",
+        props(
+            repo = "HauhauCS/Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive",
+            filename = "Qwen3.5-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf",
+            languages = "*"
+        )
+    )]
+    Qwen3_5_35bA3bUncensored,
 }
 
 impl ModelId {
@@ -82,13 +272,73 @@ impl ModelId {
 
     pub async fn get(&self, runtime: &RuntimeManager) -> anyhow::Result<PathBuf> {
         runtime
-            .artifacts()
+            .downloads()
             .huggingface_model(self.property("repo"), self.property("filename"))
             .await
     }
 
+    pub fn default_generate_options(&self) -> GenerateOptions {
+        match self {
+            // LFM2.5: temp=0.1, top_k=50, repeat=1.05
+            Self::Lfm2_5_1_2bInstruct => GenerateOptions {
+                temperature: 0.1,
+                top_k: Some(50),
+                repeat_penalty: 1.05,
+                ..Default::default()
+            },
+            // Gemma 4: temp=1.0, top_p=0.95, top_k=64
+            Self::Gemma4E2bIt
+            | Self::Gemma4E4bIt
+            | Self::Gemma4_26bA4bIt
+            | Self::Gemma4_31bIt
+            | Self::Gemma4E2bUncensored
+            | Self::Gemma4E4bUncensored => GenerateOptions {
+                temperature: 1.0,
+                top_k: Some(64),
+                top_p: Some(0.95),
+                repeat_penalty: 1.0,
+                ..Default::default()
+            },
+            // Qwen3.5 non-thinking: temp=1.0, top_k=20, top_p=1.0, presence=2.0
+            Self::Qwen3_5_0_8b
+            | Self::Qwen3_5_2b
+            | Self::Qwen3_5_4b
+            | Self::Qwen3_5_9b
+            | Self::Qwen3_5_27b
+            | Self::Qwen3_5_35bA3b
+            | Self::Qwen3_5_2bUncensored
+            | Self::Qwen3_5_4bUncensored
+            | Self::Qwen3_5_9bUncensored
+            | Self::Qwen3_5_27bUncensored
+            | Self::Qwen3_5_35bA3bUncensored => GenerateOptions {
+                temperature: 1.0,
+                top_k: Some(20),
+                top_p: Some(1.0),
+                min_p: Some(0.0),
+                presence_penalty: 2.0,
+                repeat_penalty: 1.0,
+                ..Default::default()
+            },
+            // Sugoi: temp=0.1, top_k=40, top_p=0.95, min_p=0.05, repeat=1.1
+            Self::Sugoi14bUltra | Self::Sugoi32bUltra => GenerateOptions {
+                temperature: 0.1,
+                top_k: Some(40),
+                top_p: Some(0.95),
+                min_p: Some(0.05),
+                repeat_penalty: 1.1,
+                ..Default::default()
+            },
+            // Default for other models
+            _ => GenerateOptions::default(),
+        }
+    }
+
     pub fn languages(&self) -> Vec<Language> {
-        self.property("languages")
+        let langs = self.property("languages");
+        if langs == "*" {
+            return Language::iter().collect();
+        }
+        langs
             .split(',')
             .map(|tag| Language::parse(tag).expect("invalid model language tag"))
             .collect()

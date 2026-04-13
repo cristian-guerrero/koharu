@@ -1,16 +1,14 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, JsonSchema)]
-#[ts(export)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ToSchema, JsonSchema)]
 pub enum TextDirection {
     Horizontal,
     Vertical,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, JsonSchema)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct NamedFontPrediction {
     pub index: usize,
     pub name: String,
@@ -19,10 +17,15 @@ pub struct NamedFontPrediction {
     pub serif: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, JsonSchema)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TopFont {
+    pub index: usize,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct FontPrediction {
-    pub top_fonts: Vec<(usize, f32)>,
+    pub top_fonts: Vec<TopFont>,
     pub named_fonts: Vec<NamedFontPrediction>,
     pub direction: TextDirection,
     pub text_color: [u8; 3],
