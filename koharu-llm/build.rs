@@ -137,18 +137,38 @@ fn ensure_source_tree(out_dir: &Path, llama_cpp_tag: &str) -> Result<PathBuf> {
     if !tarball_path.exists() {
         let client = Client::builder()
             .user_agent("koharu-llm-build")
+            .timeout(std::time::Duration::from_secs(300)) // 5 minutes timeout
             .build()
             .context("failed to build reqwest client")?;
-        let mut response = client
-            .get(&source_url)
-            .send()
-            .context("failed to download llama.cpp source tarball")?
-            .error_for_status()
-            .context("source tarball request failed")?;
-        let mut file =
-            fs::File::create(&tarball_path).context("failed to create source tarball file")?;
-        io::copy(&mut response, &mut file).context("failed to write source tarball")?;
-        file.flush().context("failed to flush source tarball")?;
+
+        let mut success = false;
+        let mut last_error = None;
+
+        for attempt in 1..=3 {
+            if attempt > 1 {
+                println!("cargo:warning=Retry {}/3 downloading llama.cpp source...", attempt);
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+
+            match client.get(&source_url).send().and_then(|r| r.error_for_status()) {
+                Ok(mut response) => {
+                    let mut file = fs::File::create(&tarball_path)
+                        .context("failed to create source tarball file")?;
+                    io::copy(&mut response, &mut file).context("failed to write source tarball")?;
+                    file.flush().context("failed to flush source tarball")?;
+                    success = true;
+                    break;
+                }
+                Err(err) => {
+                    println!("cargo:warning=Attempt {} failed: {}", attempt, err);
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        if !success {
+            return Err(last_error.unwrap()).context("source tarball download failed after 3 attempts");
+        }
     }
 
     let tarball =

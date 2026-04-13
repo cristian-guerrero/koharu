@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 use anyhow::{Context, Result, bail};
 
@@ -267,7 +266,11 @@ pub(crate) async fn ensure_ready(runtime: &Runtime) -> Result<()> {
 async fn install_from_source(runtime: &Runtime, install_dir: &Path) -> Result<()> {
     let asset = format!("llama.cpp-{LLAMA_CPP_TAG}.tar.gz");
     let url = format!("https://github.com/ggml-org/llama.cpp/archive/refs/tags/{LLAMA_CPP_TAG}.tar.gz");
-    let archive = archive::fetch(runtime, &url, &asset).await?;
+    let archive = runtime
+        .downloads()
+        .cached_download(&url, &asset)
+        .await
+        .with_context(|| format!("failed to download `{url}`"))?;
 
     let build_dir = install_dir.join("build-source");
     if build_dir.exists() {
